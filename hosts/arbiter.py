@@ -28,7 +28,10 @@ WS_URL = os.environ.get("SOLOIST_WS", "ws://127.0.0.1:8765")
 STATE_DIR = os.environ.get("STATE_DIR", "/run/audio-arbiter")
 SHELLY_HOST_FILE = os.environ.get("SHELLY_HOST_FILE", "")
 OFF_DELAY = float(os.environ.get("OFF_DELAY", "20"))
-LOCKOUT = float(os.environ.get("LOCKOUT", "8"))
+LOCKOUT = float(os.environ.get("LOCKOUT", "15"))
+# A source must keep playing this long before it disconnects the others: short
+# "playing" blips (track change, a phone that just connected) do not count.
+MIN_PLAY = float(os.environ.get("MIN_PLAY", "4"))
 
 SOURCES = ("spotify", "airplay", "bluetooth")
 playing = {s: False for s in SOURCES}
@@ -69,7 +72,16 @@ def set_playing(src, value):
     if value:
         started_at[src] = time.monotonic()
         if time.monotonic() >= lockout_until[src]:
-            asyncio.get_event_loop().create_task(kick_others(src))
+            asyncio.get_event_loop().create_task(confirm_then_kick(src, started_at[src]))
+
+
+async def confirm_then_kick(src, t0):
+    await asyncio.sleep(MIN_PLAY)
+    # Still the same, uninterrupted playback after MIN_PLAY seconds?
+    if playing[src] and started_at[src] == t0:
+        await kick_others(src)
+    else:
+        log(f"{src}: playing for less than {MIN_PLAY:g} s, ignored")
 
 
 async def kick_others(winner):
