@@ -1,0 +1,41 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "nix": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Raspberry Pi kernel: bumped by the kernel workflow (weekly), not by Renovate",
+      "matchManagers": [
+        "nix"
+      ],
+      "matchDepNames": [
+        "nixpkgs-kernel",
+        "nixos-hardware-kernel"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Automerge Nix updates (nixpkgs, nixos-hardware)",
+      "matchManagers": [
+        "nix"
+      ],
+      "automerge": true
+    },
+    {
+      "description": "Automerge GitHub Actions minor and patch updates",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "automerge": true
+    }
+  ]
+}

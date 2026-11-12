@@ -1,0 +1,85 @@
+name: image
+
+# Builds the SD card images of hosts/ (one per device, see
+# hosts/devices/). The kernel is NOT built here: it is published by
+# the "kernel" workflow (weekly) as a release and imported below.
+# The rest comes from cache.nixos.org. The image is published as a workflow
+# artifact.
+
+on:
+  push:
+    paths:
+      - "hosts/**"
+      - "flake.nix"
+      - "flake.lock"
+      - ".github/workflows/image.yml"
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner: ubuntu-latest (x86_64, aarch64 emulation) or ubuntu-24.04-arm (native, billed per minute on a private repo)"
+        type: choice
+        options: [ubuntu-latest, ubuntu-24.04-arm]
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        device: [chambre-de-leo, chambre-de-sarah]
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Set up aarch64 emulation
+        if: runner.arch == 'X64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-platforms = aarch64-linux
+
+      # The Raspberry Pi kernel is in no binary cache: the "kernel"
+      # workflow publishes it as a release named after its store hash.
+      - name: Import kernel
+        run: |
+          out=$(nix eval --raw .#nixosConfigurations.${{ matrix.device }}.config.boot.kernelPackages.kernel.outPath)
+          tag="kernel-$(basename "$out" | cut -d- -f1)"
+          if ! gh release download "$tag" --pattern kernel.nar.zst; then
+            echo "::error::Kernel $tag is not published. Run the workflow 'kernel' (Actions tab, Run workflow), wait for it to finish, then re-run this one. Do not wait for a compilation here."
+            exit 1
+          fi
+          zstd -dc kernel.nar.zst | sudo "$(command -v nix-store)" --import > /dev/null
+          rm kernel.nar.zst
+          nix path-info "$out"
+
+      - name: Build image
+        run: nix build -L --cores 0 --max-jobs auto .#${{ matrix.device }}-image
+
+      - name: Upload image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.device }}-sd-image
+          path: result/sd-image/*.img.zst
+          compression-level: 0
+          retention-days: 7
