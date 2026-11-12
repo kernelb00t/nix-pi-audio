@@ -1,4 +1,6 @@
-# Bluetooth audio receiver (A2DP sink) named settings.deviceName. Pairing is
+# Bluetooth audio receiver (A2DP sink) named settings.deviceName + " BT" (the
+# suffix keeps it apart from the Spotify Connect device of the same name in the
+# Spotify app). Pairing is
 # open (nobody around the house); paired devices are remembered, one stays
 # connected at a time (the arbiter disconnects the others).
 {
@@ -14,7 +16,7 @@
     powerOnBoot = true;
     settings = {
       General = {
-        Name = settings.deviceName;
+        Name = "${settings.deviceName} BT";
         # Audio / loudspeaker device class.
         Class = "0x240414";
         DiscoverableTimeout = 0;
@@ -36,7 +38,7 @@
     serviceConfig = {
       ExecStartPre = "${pkgs.bash}/bin/bash -c 'for i in $(seq 1 20); do bluetoothctl show >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'";
       ExecStart = "${pkgs.bluez-tools}/bin/bt-agent -c NoInputNoOutput";
-      ExecStartPost = "${pkgs.bash}/bin/bash -c 'bluetoothctl system-alias \"${settings.deviceName}\"; bluetoothctl pairable on; bluetoothctl discoverable on'";
+      ExecStartPost = "${pkgs.bash}/bin/bash -c 'bluetoothctl system-alias \"${settings.deviceName} BT\"; bluetoothctl pairable on; bluetoothctl discoverable on'";
       Restart = "always";
       RestartSec = 5;
     };

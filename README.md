@@ -50,7 +50,7 @@ in `flake.nix` and in the workflow matrix). Settings:
 
 Three sources play through the same output, all named after the device
 (`deviceName`): Spotify (Soloist), AirPlay 2 (shairport-sync built with
-AirPlay 2, clock from `nqptp`) and a Bluetooth A2DP receiver (open pairing,
+AirPlay 2, clock from `nqptp`) and a Bluetooth A2DP receiver named "<device name> BT" (open pairing,
 paired devices remembered).
 
 Only one source plays at a time. `audio-arbiter` (`hosts/arbiter.py`) watches them
