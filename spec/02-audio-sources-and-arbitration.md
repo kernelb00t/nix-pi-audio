@@ -25,7 +25,7 @@ The system runs three independent audio receiver daemons:
 - **Audio Codecs:** High-bitrate SBC and SBC-XQ.
 - **Bluetooth Agent:** Automatic background `bt-agent` accepting pairing requests without PIN codes.
 - **Device Broadcast Name:** Advertised on Bluetooth as `<settings.deviceName> BT`.
-- **Playback Detection:** Monitors D-Bus (`org.bluez`) for active `org.bluez.MediaTransport1` interfaces where `State == "active"`.
+- **Playback Detection:** Monitors D-Bus (`org.bluez`) for connected `org.bluez.Device1` objects (each one a source) and, per device, an active `org.bluez.MediaTransport1` (`State == "active"`) meaning it is playing.
 
 ---
 
@@ -69,8 +69,14 @@ sequenceDiagram
 To ensure streaming applications visibly reflect the handover on phones and laptops, competing sources are disconnected rather than merely muted:
 - **Spotify:** Restarts `soloist.service` via `systemctl restart`. The Spotify app immediately drops back to local playback.
 - **AirPlay 2:** Removes `/run/audio-arbiter/airplay` and restarts `shairport-sync.service`. iOS/macOS Control Center releases the route.
-- **Bluetooth:** Issues a D-Bus `org.bluez.Device1.Disconnect` call against the active sender's MAC address.
+- **Bluetooth:** see section 3.3.
+
+### 3.3 Bluetooth: every device is a source
+- The arbiter tracks **all** connected BlueZ devices (`org.bluez.Device1` with `Connected == true`). Each one is a distinct source keyed `bt:<D-Bus object path>`; it counts as *playing* only while its `org.bluez.MediaTransport1` is `active`. A device that is connected but idle never makes the system busy (`busy` stays `0`, the Shelly plug is not held on).
+- When any source wins (after the usual `MIN_PLAY` confirmation), **every connected Bluetooth device other than the winner is disconnected**, playing or not (`devices_to_disconnect(winner, connected_devices)`). If the winner is a Bluetooth device it is the only one left connected: one phone at a time, the last one to play wins.
+- Clean disconnect: if the device exposes an AVRCP player (`org.bluez.MediaPlayer1` under its path), `Pause` is sent first (errors ignored), the arbiter waits `BT_PAUSE_WAIT` (0.3 s), then calls `Device1.Disconnect`. Each disconnection is logged (`disconnected <device> (pause sent | no player)`). An error on one device does not prevent the others from being handled.
+- No kick loop: a disconnected device gets a `LOCKOUT` (15 s) that survives its disconnection, so when it reconnects by itself (an iPhone does so after about 40 s) a short "playing" blip cannot win; it must play for `MIN_PLAY` (4 s) like any other source.
 
 ### 3.2 IPC State Contract
-- `/run/audio-arbiter/busy`: Contains `1\n` if any source is actively playing (`any(playing.values())`), or `0\n` when idle. Read by [`hosts/onkyo-bridge.py`](../hosts/onkyo-bridge.py) for zero-latency audio detection.
+- `/run/audio-arbiter/busy`: Contains `1\n` if any source is actively playing (`any(playing.values())`), or `0\n` when idle. Connected but idle Bluetooth devices do not count. Read by [`hosts/onkyo-bridge.py`](../hosts/onkyo-bridge.py) for zero-latency audio detection.
 - `/run/audio-arbiter/airplay`: Present only while AirPlay 2 is actively rendering audio.
