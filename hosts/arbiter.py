@@ -64,10 +64,23 @@ def find_status(obj):
     return None
 
 
+def write_busy_state():
+    busy = any(playing.values())
+    try:
+        tmp = os.path.join(STATE_DIR, "busy.tmp")
+        target = os.path.join(STATE_DIR, "busy")
+        with open(tmp, "w") as f:
+            f.write("1\n" if busy else "0\n")
+        os.replace(tmp, target)
+    except OSError:
+        pass
+
+
 def set_playing(src, value):
     if playing[src] == value:
         return
     playing[src] = value
+    write_busy_state()
     log(f"{src}: {'playing' if value else 'stopped'}")
     if value:
         started_at[src] = time.monotonic()
@@ -213,6 +226,7 @@ async def power_task():
 
 async def main():
     os.makedirs(STATE_DIR, exist_ok=True)
+    write_busy_state()
     await asyncio.gather(spotify_task(), airplay_task(), bluetooth_task(), power_task())
 
 

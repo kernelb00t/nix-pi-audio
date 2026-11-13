@@ -7,8 +7,20 @@
   # Name shown in the Spotify device picker (also used for AirPlay and Bluetooth).
   deviceName = "Soloist Pi";
 
-  # Audio output: "jack" (onboard 3.5 mm jack) or "hifiberry-amp2".
+  # Audio output: "jack" (onboard 3.5 mm jack), "hifiberry-amp2", or "hifiberry-digi".
   audioOutput = "jack";
+
+  # Onkyo AV receiver integration over eISCP (onkyo.nix).
+  onkyo = {
+    enable = false;
+    input = "03";          # 03 = AUX in hex
+    managedVolume = 60;    # Volume on the receiver while streaming
+    restoreMax = 40;       # Max volume restored after session
+    silenceDelay = 20;     # Silence seconds before going to standby
+    rampDelay = 3;         # Seconds after power-on before starting volume ramp
+    rampFrom = 25;         # First volume step of the ramp
+    rampTime = 3;          # Duration of the volume ramp in seconds
+  };
 
   # Soloist playback cache, kept in RAM (tmpfs), so the SD card is not written.
   # The tmpfs takes cacheRamPercent of the RAM of the Pi it runs on; Soloist is

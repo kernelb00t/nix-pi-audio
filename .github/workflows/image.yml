@@ -32,7 +32,7 @@ jobs:
   build:
     strategy:
       matrix:
-        device: [chambre-de-leo, chambre-de-sarah]
+        device: [chambre-de-leo, chambre-de-sarah, television]
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 120
     steps:

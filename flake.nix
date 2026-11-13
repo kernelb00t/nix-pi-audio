@@ -23,7 +23,7 @@
   }: let
     # One NixOS configuration per Soloist Pi: defaults in settings.nix,
     # overridden by hosts/devices/<name>.nix.
-    soloistDevices = ["chambre-de-leo" "chambre-de-sarah"];
+    soloistDevices = ["chambre-de-leo" "chambre-de-sarah" "television"];
     soloistPi = device:
       nixpkgs.lib.nixosSystem {
         specialArgs = {

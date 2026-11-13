@@ -83,7 +83,7 @@ jobs:
         id: kernel
         run: |
           attr() { echo "$1#nixosConfigurations.$2.config.boot.kernelPackages.kernel"; }
-          hosts="chambre-de-leo chambre-de-sarah"
+          hosts="chambre-de-leo chambre-de-sarah television"
           have_prod=false
           if git rev-parse --verify --quiet origin/prod >/dev/null; then
             have_prod=true
@@ -151,12 +151,13 @@ jobs:
           # cachix push also sends the closure of the paths.
           xargs cachix push "$CACHE_NAME" < "$RUNNER_TEMP/kernel-outs"
 
-      - name: Build both systems
+      - name: Build all systems
         run: |
           # Kernel from the cache (or just built); the rest from cache.nixos.org.
           nix build -L --cores 0 --max-jobs auto --no-link --print-out-paths \
             .#nixosConfigurations.chambre-de-leo.config.system.build.toplevel \
             .#nixosConfigurations.chambre-de-sarah.config.system.build.toplevel \
+            .#nixosConfigurations.television.config.system.build.toplevel \
             | tee "$RUNNER_TEMP/toplevels"
 
       # Paths that cache.nixos.org does not have (shairport-sync with AirPlay 2,

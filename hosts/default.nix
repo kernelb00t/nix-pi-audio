@@ -14,6 +14,8 @@
 }:
 let
   amp2 = settings.audioOutput == "hifiberry-amp2";
+  digi = settings.audioOutput == "hifiberry-digi";
+  hifiberry = amp2 || digi;
 in
 {
   imports = [
@@ -26,6 +28,7 @@ in
     ./bluetooth.nix
     ./arbiter.nix
     ./equalizer.nix
+    ./onkyo.nix
   ];
 
   assertions = [
@@ -33,8 +36,9 @@ in
       assertion = lib.elem settings.audioOutput [
         "jack"
         "hifiberry-amp2"
+        "hifiberry-digi"
       ];
-      message = "settings.nix: audioOutput must be \"jack\" or \"hifiberry-amp2\".";
+      message = "settings.nix: audioOutput must be \"jack\", \"hifiberry-amp2\" or \"hifiberry-digi\".";
     }
   ];
 
@@ -98,7 +102,7 @@ in
 
   # Audio output, through config.txt (applied by the firmware).
   hardware.raspberry-pi.configtxt = {
-    settings.all = lib.mkIf amp2 {
+    settings.all = lib.mkIf hifiberry {
       # Onboard audio off; the HAT EEPROM must not load its own overlay.
       dtparam = [ "audio=off" ];
       force_eeprom_read = 0;
@@ -108,7 +112,9 @@ in
       { vc4-kms-v3d.noaudio = true; }
     ]
     # HiFiBerry Amp2 on kernels >= 6.1.77 (HiFiBerry documentation).
-    ++ lib.optional amp2 { hifiberry-dacplus-std = { }; };
+    ++ lib.optional amp2 { hifiberry-dacplus-std = { }; }
+    # HiFiBerry Digi S/PDIF output.
+    ++ lib.optional digi { hifiberry-digi = { }; };
   };
 
   # Turn off ACT and PWR LEDs once all services are started and healthy.
@@ -176,14 +182,14 @@ in
   };
 
   # Blacklist unused camera, video decode and codec modules for an audio-only streamer.
-  # Amp2: the onboard headphones card (snd_bcm2835) still shows up although
+  # HiFiBerry: the onboard headphones card (snd_bcm2835) still shows up although
   # audio is off in config.txt, and PipeWire picked it as the default output.
   boot.blacklistedKernelModules = [
     "bcm2835_v4l2"
     "bcm2835_codec"
     "bcm2835_isp"
     "rpi_hevc_dec"
-  ] ++ lib.optional amp2 "snd_bcm2835";
+  ] ++ lib.optional hifiberry "snd_bcm2835";
 
   # PipeWire, system-wide: Soloist runs as a system user.
   security.rtkit.enable = true;

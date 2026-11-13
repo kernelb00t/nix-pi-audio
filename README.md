@@ -100,8 +100,9 @@ SOLOIST_API_KEY=spak_...
 # Tailscale Remote Access (optional but recommended)
 TAILSCALE_AUTHKEY=tskey-auth-...
 
-# Smart Plug & Notifications (optional)
+# Smart Plug, Onkyo Receiver & Notifications (optional)
 SHELLY_HOST=192.168.1.50
+ONKYO_HOST=                 # Leave empty for UDP auto-discovery, IP for fixed, or "false" to disable
 DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
 ```
 
@@ -124,6 +125,7 @@ Configurations are modular and split per device under `hosts/devices/`:
 |---|---|---|---|
 | **Chambre de Léo** | HiFiBerry Amp2 (HAT) | 10-Band Parametric EQ ("Lo Boost"), Shelly control | [`hosts/devices/chambre-de-leo.nix`](hosts/devices/chambre-de-leo.nix) |
 | **Chambre de Sarah** | 3.5 mm Onboard Analog Jack | Standard stereo output | [`hosts/devices/chambre-de-sarah.nix`](hosts/devices/chambre-de-sarah.nix) |
+| **Télévision** | HiFiBerry Digi (S/PDIF) | Onkyo AV Receiver Bridge (eISCP auto-discovery, power, input & volume) | [`hosts/devices/television.nix`](hosts/devices/television.nix) |
 
 ### Adding a New Device
 

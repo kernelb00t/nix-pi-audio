@@ -111,6 +111,22 @@ let
           echo "DISCORD_WEBHOOK must look like https://discord.com/api/webhooks/<id>/<token>: ignored" >&2
         fi
       fi
+      # Optional: Onkyo AV receiver host (onkyo.nix).
+      # - "false", "off", "no", "disabled", "0": disables onkyo-bridge
+      # - IP address or host: direct connection
+      # - empty or unset: auto-discovery
+      if [ -n "''${v[ONKYO_HOST]+x}" ]; then
+        raw_onkyo="''${v[ONKYO_HOST]}"
+        case "$raw_onkyo" in
+          false|off|no|disabled|0)
+            touch ${secretsDir}/onkyo-disabled
+            printf '%s' "false" > ${secretsDir}/onkyo-host
+            ;;
+          *)
+            printf '%s' "$raw_onkyo" > ${secretsDir}/onkyo-host
+            ;;
+        esac
+      fi
     '';
   };
 in
