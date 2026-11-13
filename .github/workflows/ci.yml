@@ -98,9 +98,13 @@ jobs:
             echo "$host kernel (this commit): $new"
             echo "$new" >> "$RUNNER_TEMP/kernel-drvs"
             if [ "$have_prod" = true ]; then
-              old=$(cd "$RUNNER_TEMP/prod" && nix eval --raw "$(attr . "$host").drvPath")
-              echo "$host kernel (prod):        $old"
-              [ "$new" = "$old" ] || changed=true
+              if old=$(cd "$RUNNER_TEMP/prod" && nix eval --raw "$(attr . "$host").drvPath" 2>/dev/null); then
+                echo "$host kernel (prod):        $old"
+                [ "$new" = "$old" ] || changed=true
+              else
+                echo "$host kernel (prod):        new device (not in prod)"
+                changed=true
+              fi
             else
               changed=true
             fi
