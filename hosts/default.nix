@@ -95,22 +95,12 @@ in
     '';
   };
 
-  # Audio output and LEDs, through config.txt (applied by the firmware).
+  # Audio output, through config.txt (applied by the firmware).
   hardware.raspberry-pi.configtxt = {
-    settings.all = {
-      # Onboard audio: off for HiFiBerry Amp2, on for 3.5 mm jack (chambre-de-sarah).
-      # Setting dtparam explicitly ensures audio stays enabled for the jack while
-      # adding parameters to disable the activity and power LEDs.
-      dtparam = [
-        (if amp2 then "audio=off" else "audio=on")
-        # Turn off ACT (activity) and PWR (power) LEDs.
-        "act_led_trigger=none"
-        "act_led_activelow=off"
-        "pwr_led_trigger=none"
-        "pwr_led_activelow=off"
-      ];
-      # HiFiBerry Amp2: the HAT EEPROM must not load its own overlay.
-      force_eeprom_read = lib.mkIf amp2 0;
+    settings.all = lib.mkIf amp2 {
+      # Onboard audio off; the HAT EEPROM must not load its own overlay.
+      dtparam = [ "audio=off" ];
+      force_eeprom_read = 0;
     };
     deviceTreeOverlays.all = [
       # No HDMI audio: a single output, so it is the default one.
@@ -120,23 +110,66 @@ in
     ++ lib.optional amp2 { hifiberry-dacplus-std = { }; };
   };
 
-  # Turn off all onboard LEDs (ACT, PWR) at boot via udev and a systemd unit.
-  services.udev.extraRules = ''
-    ACTION=="add", SUBSYSTEM=="leds", ATTR{trigger}="none", ATTR{brightness}="0"
-  '';
+  # Turn off ACT and PWR LEDs once all services are started and healthy.
+  # The LEDs remain on during boot as a visual indicator.
   systemd.services.disable-leds = {
-    description = "Turn off Raspberry Pi ACT and PWR LEDs";
+    description = "Turn off Raspberry Pi LEDs once all audio services are healthy";
     wantedBy = [ "multi-user.target" ];
+    after = [
+      "multi-user.target"
+      "pipewire.service"
+      "wireplumber.service"
+      "audio-arbiter.service"
+      "shairport-sync.service"
+      "bluetooth.service"
+      "soloist.service"
+    ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "disable-leds" ''
-        for led in /sys/class/leds/*; do
-          if [ -d "$led" ]; then
-            echo none > "$led/trigger" 2>/dev/null || true
-            echo 0 > "$led/brightness" 2>/dev/null || true
+      Restart = "on-failure";
+      RestartSec = 5;
+      ExecStart = pkgs.writeShellScript "disable-leds-when-healthy" ''
+        services=(
+          pipewire.service
+          wireplumber.service
+          audio-arbiter.service
+          shairport-sync.service
+          bluetooth.service
+        )
+
+        echo "Waiting for audio services to become healthy before turning off LEDs..."
+        for i in $(seq 1 60); do
+          all_ok=true
+          for s in "''${services[@]}"; do
+            if ! ${pkgs.systemd}/bin/systemctl is-active --quiet "$s"; then
+              all_ok=false
+              break
+            fi
+          done
+
+          # Check Soloist if an API key is configured
+          if [ -s /run/soloist-secrets/soloist-api-key ]; then
+            if ! ${pkgs.systemd}/bin/systemctl is-active --quiet soloist.service; then
+              all_ok=false
+            fi
           fi
+
+          if [ "$all_ok" = true ]; then
+            echo "All services healthy. Turning off LEDs."
+            for led in /sys/class/leds/*; do
+              if [ -d "$led" ]; then
+                echo none > "$led/trigger" 2>/dev/null || true
+                echo 0 > "$led/brightness" 2>/dev/null || true
+              fi
+            done
+            exit 0
+          fi
+          sleep 1
         done
+
+        echo "Timeout: some audio services failed to become healthy. Leaving LEDs on." >&2
+        exit 1
       '';
     };
   };
