@@ -84,11 +84,12 @@ in
     enable = true;
     uboot.enable = true;
   };
+  boot.loader.timeout = 0;
   boot.loader.generic-extlinux-compatible.configurationLimit = 5;
 
   image.baseName = settings.hostName;
   sdImage = {
-    firmwareSize = 256;
+    firmwareSize = 64;
     populateRootCommands = ''
       mkdir -p ./files/boot
       ${config.boot.loader.generic-extlinux-compatible.populateCmd} -c ${config.system.build.toplevel} -d ./files/boot
@@ -174,9 +175,15 @@ in
     };
   };
 
+  # Blacklist unused camera, video decode and codec modules for an audio-only streamer.
   # Amp2: the onboard headphones card (snd_bcm2835) still shows up although
   # audio is off in config.txt, and PipeWire picked it as the default output.
-  boot.blacklistedKernelModules = lib.optional amp2 "snd_bcm2835";
+  boot.blacklistedKernelModules = [
+    "bcm2835_v4l2"
+    "bcm2835_codec"
+    "bcm2835_isp"
+    "rpi_hevc_dec"
+  ] ++ lib.optional amp2 "snd_bcm2835";
 
   # PipeWire, system-wide: Soloist runs as a system user.
   security.rtkit.enable = true;
@@ -186,6 +193,11 @@ in
     alsa.enable = true;
     pulse.enable = false;
     wireplumber.enable = true;
+    wireplumber.extraConfig."10-disable-camera"."wireplumber.profiles" = {
+      main = {
+        "hardware.video-capture" = "disabled";
+      };
+    };
     wireplumber.extraConfig."50-default-volume"."wireplumber.settings" = {
       "device.routes.default-sink-volume" = 1.0;
     };
@@ -225,6 +237,9 @@ in
   };
   security.sudo.wheelNeedsPassword = false;
 
+  nix.channel.enable = false;
+  nix.registry = lib.mkForce { };
+  nix.nixPath = [ ];
   nix.settings = {
     experimental-features = [
       "nix-command"
@@ -235,6 +250,12 @@ in
   # No automatic garbage collection nor store optimisation: both rewrite the
   # store on the SD card. Updates are built on the admin machine; clean by hand
   # (nix-collect-garbage --delete-older-than 14d) if the card fills up.
+
+  environment.defaultPackages = [ ];
+  programs.nano.enable = false;
+  services.logrotate.enable = false;
+  fonts.fontconfig.enable = false;
+  xdg.sounds.enable = false;
 
   # Fewer writes to the SD card. Logs and /tmp live in RAM (journalctl is lost
   # at reboot: read it before rebooting to debug), the root filesystem is not
