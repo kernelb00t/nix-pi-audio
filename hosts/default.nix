@@ -120,10 +120,26 @@ in
     ++ lib.optional amp2 { hifiberry-dacplus-std = { }; };
   };
 
-  # Turn off ACT and PWR LEDs if re-enabled by the kernel or drivers at boot.
+  # Turn off all onboard LEDs (ACT, PWR) at boot via udev and a systemd unit.
   services.udev.extraRules = ''
-    ACTION=="add", SUBSYSTEM=="leds", KERNEL=="*act*|*pwr*|*ACT*|*PWR*|led[01]", ATTR{trigger}="none", ATTR{brightness}="0"
+    ACTION=="add", SUBSYSTEM=="leds", ATTR{trigger}="none", ATTR{brightness}="0"
   '';
+  systemd.services.disable-leds = {
+    description = "Turn off Raspberry Pi ACT and PWR LEDs";
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "disable-leds" ''
+        for led in /sys/class/leds/*; do
+          if [ -d "$led" ]; then
+            echo none > "$led/trigger" 2>/dev/null || true
+            echo 0 > "$led/brightness" 2>/dev/null || true
+          fi
+        done
+      '';
+    };
+  };
 
   # Amp2: the onboard headphones card (snd_bcm2835) still shows up although
   # audio is off in config.txt, and PipeWire picked it as the default output.
