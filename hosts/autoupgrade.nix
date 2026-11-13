@@ -114,7 +114,7 @@ in
     trusted-public-keys = [ "kernelb00t.cachix.org-1:8IJNajMb8SDKZVtPIfDZrbm8XPAEmOmZANZ8E+Ps6V0=" ];
   };
 
-  systemd.services.nixos-upgrade = {
+  systemd.services.nixos-upgrade = lib.mkIf settings.autoUpgrade {
     onFailure = [ "nixos-upgrade-notify-failure.service" ];
     # Only runs after a successful update ("-": never makes the update fail).
     serviceConfig.ExecStartPost = lib.mkIf (!settings.autoUpgradeReboot) [ "-${rebootCheck}" ];

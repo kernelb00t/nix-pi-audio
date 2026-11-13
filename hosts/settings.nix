@@ -29,9 +29,9 @@
   # false: build it natively on aarch64 (the Pi itself, an aarch64 builder).
   crossCompileKernel = true;
 
-  # Automatic nightly update from the prod branch (autoupgrade.nix). Off for now:
-  # update by hand with the pi-update command over SSH.
-  autoUpgrade = false;
+  # Automatic nightly update from the prod branch (autoupgrade.nix).
+  # Can also be triggered on-demand via systemctl start nixos-upgrade.service.
+  autoUpgrade = true;
 
   # When the nightly update is on, autoUpgradeReboot false: the
   # new generation is activated without reboot (a Discord message says when a
