@@ -9,7 +9,12 @@
   <img src="https://img.shields.io/badge/OS-NixOS%20Linux-blue.svg?style=flat-square&logo=nixos" alt="OS" />
   <img src="https://img.shields.io/badge/Audio-PipeWire-informational.svg?style=flat-square" alt="Audio" />
   <img src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/Developed%20with-AI%20(Claude%20Code%20%26%20Antigravity)-blueviolet.svg?style=flat-square" alt="Developed with AI" />
 </p>
+
+> [!NOTE]
+> Ce projet a été intégralement conçu et développé avec l'assistance d'agents d'intelligence artificielle (**Claude Code** et **Antigravity**).  
+> Le dossier [`spec/`](spec/) contient les fiches de spécifications architecturales complètes qui font foi pour la maintenance et l'évolution du système.
 
 ---
 
