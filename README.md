@@ -25,7 +25,7 @@
   - **Spotify Connect** powered by official [Spotify Soloist](https://developer.spotify.com/documentation/soloist) (auto-updating headless daemon).
   - **AirPlay 2** with CD-quality / PTP clock synchronization (`shairport-sync` + `nqptp`).
   - **Bluetooth A2DP** receiver with high-quality SBC-XQ and auto-reconnect.
-- **🔀 Smart Audio Arbiter:** The last source to play wins. The arbiter automatically pauses or disconnects the previous source to prevent audio collision.
+- **🔀 Smart Audio Arbiter:** The last source to play wins. The arbiter automatically pauses or disconnects the previous source to prevent audio collision. Every connected Bluetooth device is a source of its own: whenever a source wins, all other Bluetooth devices are cleanly disconnected (AVRCP pause, then disconnect), even idle ones, so only one phone stays connected.
 - **🎚️ Parametric Equalizer (DSP):** Integrated PipeWire filter-chain PEQ (including Moode Audio curve migrations) to tune sound to your room and speakers.
 - **🔌 Smart Home Integration:** Automatically powers your speakers on/off via a [Shelly](https://www.shelly.com/) smart plug based on playback state.
 - **💡 Visual Health Indicator:** Onboard ACT and PWR LEDs stay lit during boot and automatically shut off once all audio services are verified healthy.

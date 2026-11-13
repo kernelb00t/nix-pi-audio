@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Audio source arbiter for a Soloist Pi.
 
-Three sources can play: Spotify (Soloist), AirPlay (shairport-sync) and
-Bluetooth (BlueZ A2DP). Only one may play at a time: the last one to start
-wins, the others are disconnected (not paused), so the user sees it:
+Sources: Spotify (Soloist), AirPlay (shairport-sync) and every connected
+Bluetooth device (BlueZ A2DP; each device is its own source, "bt:<path>").
+Only one may play at a time: the last one to start wins, the others are
+disconnected (not paused), so the user sees it:
   - Spotify:   restart soloist.service
   - AirPlay:   restart shairport-sync.service
-  - Bluetooth: disconnect the device (BlueZ Device1.Disconnect)
+  - Bluetooth: every connected device other than the winner is disconnected,
+    playing or not (AVRCP Pause, short wait, then BlueZ Device1.Disconnect)
 Optionally a Shelly plug (speakers power) is switched on when anything plays
 and off after OFF_DELAY seconds of silence (direct Shelly Gen2+ HTTP RPC).
 
@@ -33,11 +35,16 @@ LOCKOUT = float(os.environ.get("LOCKOUT", "15"))
 # "playing" blips (track change, a phone that just connected) do not count.
 MIN_PLAY = float(os.environ.get("MIN_PLAY", "4"))
 
-SOURCES = ("spotify", "airplay", "bluetooth")
+# Wait after the AVRCP Pause before disconnecting a Bluetooth device.
+BT_PAUSE_WAIT = 0.3
+
+SOURCES = ("spotify", "airplay")
+BT_PREFIX = "bt:"
+# Bluetooth devices are added as "bt:<object path>" while they are connected.
 playing = {s: False for s in SOURCES}
-bt_device = None  # object path of the Bluetooth device that is streaming
 started_at = {s: 0.0 for s in SOURCES}
-lockout_until = {s: 0.0 for s in SOURCES}
+lockout_until = {}  # kept after a device disconnects: it may reconnect soon
+bt_names = {}  # object path -> alias, for the logs
 last_busy = -1e9  # never busy yet: do not switch the plug at boot
 plug_on = None
 
@@ -77,29 +84,37 @@ def write_busy_state():
 
 
 def set_playing(src, value):
-    if playing[src] == value:
+    if playing.get(src, False) == value:
         return
     playing[src] = value
     write_busy_state()
     log(f"{src}: {'playing' if value else 'stopped'}")
     if value:
         started_at[src] = time.monotonic()
-        if time.monotonic() >= lockout_until[src]:
+        if time.monotonic() >= lockout_until.get(src, 0.0):
             asyncio.get_event_loop().create_task(confirm_then_kick(src, started_at[src]))
 
 
 async def confirm_then_kick(src, t0):
     await asyncio.sleep(MIN_PLAY)
     # Still the same, uninterrupted playback after MIN_PLAY seconds?
-    if playing[src] and started_at[src] == t0:
+    if playing.get(src, False) and started_at.get(src) == t0:
         await kick_others(src)
     else:
         log(f"{src}: playing for less than {MIN_PLAY:g} s, ignored")
 
 
+def devices_to_disconnect(winner, connected_devices):
+    """Bluetooth devices to disconnect when `winner` (a source key) wins.
+
+    Every connected device except the winner, whether it plays or not.
+    """
+    return [d for d in connected_devices if BT_PREFIX + d != winner]
+
+
 async def kick_others(winner):
     for other in SOURCES:
-        if other == winner or not playing[other]:
+        if other == winner or not playing.get(other, False):
             continue
         log(f"{winner} started: disconnecting {other}")
         lockout_until[other] = time.monotonic() + LOCKOUT
@@ -113,10 +128,19 @@ async def kick_others(winner):
                 except FileNotFoundError:
                     pass
                 subprocess.run(["systemctl", "restart", "shairport-sync.service"], check=False, timeout=30)
-            elif other == "bluetooth":
-                await bt_disconnect()
         except Exception as e:  # never let one failure stop the arbiter
             log(f"disconnect {other} failed: {e}")
+    try:
+        objs = await bluez_objects()
+        victims = devices_to_disconnect(winner, connected_devices(objs))
+    except Exception as e:
+        log(f"BlueZ: cannot list devices to disconnect: {e}")
+        return
+    for dev in victims:
+        key = BT_PREFIX + dev
+        lockout_until[key] = time.monotonic() + LOCKOUT
+        playing[key] = False
+    await asyncio.gather(*(bt_disconnect(dev, objs) for dev in victims))
 
 
 async def spotify_task():
@@ -159,29 +183,69 @@ async def bluez_objects():
     return await mgr.call_get_managed_objects()
 
 
-async def bt_disconnect():
-    if not bt_device:
-        return
-    intro = await bus.introspect("org.bluez", bt_device)
-    dev = bus.get_proxy_object("org.bluez", bt_device, intro).get_interface("org.bluez.Device1")
-    await dev.call_disconnect()
+def connected_devices(objs):
+    """Object paths of the connected BlueZ devices (Device1.Connected)."""
+    devs = []
+    for path, ifaces in objs.items():
+        d = ifaces.get("org.bluez.Device1")
+        if d and d.get("Connected") and d["Connected"].value:
+            devs.append(path)
+            alias = d.get("Alias")
+            bt_names[path] = alias.value if alias else path
+    return devs
+
+
+async def bt_call(path, iface, method):
+    intro = await bus.introspect("org.bluez", path)
+    i = bus.get_proxy_object("org.bluez", path, intro).get_interface(iface)
+    await asyncio.wait_for(getattr(i, "call_" + method)(), timeout=5)
+
+
+async def bt_disconnect(dev, objs):
+    """Pause the device's AVRCP player if any, wait a bit, then disconnect it."""
+    name = bt_names.get(dev, dev)
+    players = [
+        p for p, ifaces in objs.items()
+        if "org.bluez.MediaPlayer1" in ifaces and p.startswith(dev + "/")
+    ]
+    paused = False
+    for p in players:
+        try:
+            await bt_call(p, "org.bluez.MediaPlayer1", "pause")
+            paused = True
+        except Exception:
+            pass  # not every player supports Pause: ignore
+    if paused:
+        await asyncio.sleep(BT_PAUSE_WAIT)
+    try:
+        await bt_call(dev, "org.bluez.Device1", "disconnect")
+        log(f"disconnected {name} ({'pause sent' if paused else 'no player'})")
+    except Exception as e:  # one device failing must not stop the others
+        log(f"disconnect {name} failed: {e}")
 
 
 async def bluetooth_task():
-    global bt_device
     while True:
         try:
             objs = await bluez_objects()
-            active = None
+            active = set()
             for path, ifaces in objs.items():
                 t = ifaces.get("org.bluez.MediaTransport1")
                 if t and t.get("State") and t["State"].value == "active":
-                    active = t["Device"].value
-            bt_device = active or bt_device
-            set_playing("bluetooth", active is not None)
+                    active.add(t["Device"].value)
+            connected = connected_devices(objs)
+            for dev in connected:
+                set_playing(BT_PREFIX + dev, dev in active)
+            # Forget the devices that are gone (their lockout is kept).
+            for key in [k for k in playing if k.startswith(BT_PREFIX)]:
+                if key[len(BT_PREFIX):] not in connected:
+                    set_playing(key, False)
+                    playing.pop(key, None)
+                    started_at.pop(key, None)
         except Exception as e:
             log(f"BlueZ: {e}")
-            set_playing("bluetooth", False)
+            for key in [k for k in playing if k.startswith(BT_PREFIX)]:
+                set_playing(key, False)
             await asyncio.sleep(5)
         await asyncio.sleep(1)
 
