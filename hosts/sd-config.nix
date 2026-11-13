@@ -6,6 +6,7 @@
   config,
   lib,
   pkgs,
+  settings,
   ...
 }:
 let
@@ -13,13 +14,149 @@ let
   secretsDir = "/run/soloist-secrets";
   wifiConf = "/etc/wpa_supplicant/imperative.conf";
 
+  # Dynamically generate the environment template based on the host configuration.
+  # Modules not enabled for this device (e.g. Onkyo on non-TV devices) are omitted.
+  soloistEnvTemplate = pkgs.writeText "soloist.env.template" (
+    ''
+      # ==============================================================================
+      # Configuration for ${settings.deviceName} (${settings.hostName})
+      # ==============================================================================
+      # This file is read on every boot from the FAT firmware partition (/boot/firmware).
+      # Format: KEY=value, one per line. Quotes around values are optional.
+
+      # Wi-Fi network. Leave WIFI_SSID empty to use Ethernet only.
+      # Leave WIFI_PASSWORD empty for an open network.
+      WIFI_SSID=
+      WIFI_PASSWORD=
+      WIFI_COUNTRY=FR
+
+      # Spotify Soloist API key (https://developer.spotify.com/dashboard/soloist).
+      SOLOIST_API_KEY=
+
+      # Tailscale auth key, used only for the first login (or after a logout).
+      TAILSCALE_AUTHKEY=
+
+      # Optional: address of the Shelly plug that powers the speakers (IP address or
+      # host name). The Pi switches it on when a source plays and off after
+      # 20 seconds of silence. Leave empty if there is no plug.
+      SHELLY_HOST=
+
+      # Optional: Discord webhook (https://discord.com/api/webhooks/...) where the Pi
+      # reports a failed automatic update, or a reboot to do. Leave empty for no notification.
+      DISCORD_WEBHOOK=
+    ''
+    + lib.optionalString (settings.onkyo.enable or false) ''
+
+      # Optional: Onkyo AV receiver address for devices controlling an Onkyo receiver
+      # over eISCP. The Pi turns on the receiver, sets the input and manages the volume.
+      # - Leave empty (default): auto-discover the Onkyo receiver on the local network via UDP.
+      # - IP address or host name (e.g. 192.168.0.208): connect directly to this receiver.
+      # - "false": disable the Onkyo receiver integration.
+      ONKYO_HOST=
+    ''
+  );
+
+  # Python tool to merge the current generation template with existing user values.
+  # Preserves existing configuration while adding new template keys/comments.
+  updateSoloistEnv = pkgs.writeShellApplication {
+    name = "update-soloist-env";
+    runtimeInputs = with pkgs; [
+      coreutils
+      python3
+    ];
+    text = ''
+      TEMPLATE="''${1:-${soloistEnvTemplate}}"
+      TARGET="''${2:-${envFile}}"
+
+      if [ ! -f "$TEMPLATE" ]; then
+        echo "Template $TEMPLATE not found" >&2
+        exit 1
+      fi
+
+      TARGET_DIR=$(dirname "$TARGET")
+      if [ ! -d "$TARGET_DIR" ]; then
+        exit 0
+      fi
+
+      python3 - "$TEMPLATE" "$TARGET" << 'EOF'
+import os
+import re
+import sys
+
+template_path = sys.argv[1]
+target_path = sys.argv[2]
+
+if not os.path.exists(target_path):
+    with open(template_path, "r", encoding="utf-8") as f_in, open(target_path, "w", encoding="utf-8") as f_out:
+        f_out.write(f_in.read())
+    sys.exit(0)
+
+# Parse existing target file
+old_values = {}
+with open(target_path, "r", encoding="utf-8", errors="replace") as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = re.match(r"^([A-Z_]+)\s*=\s*(.*)$", line)
+        if m:
+            key = m.group(1)
+            raw_val = m.group(2).strip()
+            old_values[key] = raw_val
+
+# Read template and fill with old values
+out_lines = []
+seen_keys = set()
+with open(template_path, "r", encoding="utf-8") as f:
+    for line in f:
+        m = re.match(r"^([A-Z_]+)\s*=(.*)$", line)
+        if m:
+            key = m.group(1)
+            seen_keys.add(key)
+            if key in old_values:
+                out_lines.append(f"{key}={old_values[key]}\n")
+            else:
+                out_lines.append(line)
+        else:
+            out_lines.append(line)
+
+# Preserve any custom / extra keys from the old file
+extra_keys = [k for k in old_values if k not in seen_keys]
+if extra_keys:
+    out_lines.append("\n# Preserved custom / legacy settings:\n")
+    for k in extra_keys:
+        out_lines.append(f"{k}={old_values[k]}\n")
+
+# Atomic write with fallback for FAT32 filesystems
+tmp_path = target_path + ".tmp"
+try:
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.writelines(out_lines)
+    os.replace(tmp_path, target_path)
+except OSError:
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.writelines(out_lines)
+    try:
+        os.remove(tmp_path)
+    except OSError:
+        pass
+EOF
+    '';
+  };
+
   soloistConfig = pkgs.writeShellApplication {
     name = "soloist-config";
     runtimeInputs = with pkgs; [
       coreutils
       gnugrep
+      updateSoloistEnv
     ];
     text = ''
+      # Keep soloist.env up-to-date with this generation's template.
+      if [ -d "/boot/firmware" ]; then
+        ${lib.getExe updateSoloistEnv} "${soloistEnvTemplate}" "${envFile}"
+      fi
+
       # Byte-wise checks (wpa_supplicant wants 8 to 63 ASCII bytes).
       export LC_ALL=C
       umask 077
@@ -139,6 +276,16 @@ in
     "dmask=0077"
   ];
 
+  # Live updates (nixos-rebuild switch / nixos-upgrade.service) update soloist.env.
+  system.activationScripts.updateSoloistEnv = {
+    deps = [ ];
+    text = ''
+      if grep -qs " /boot/firmware " /proc/mounts; then
+        ${lib.getExe updateSoloistEnv} "${soloistEnvTemplate}" "${envFile}"
+      fi
+    '';
+  };
+
   systemd.services.soloist-config = {
     description = "Read soloist.env from the SD card firmware partition";
     wantedBy = [ "multi-user.target" ];
@@ -176,10 +323,10 @@ in
     unitConfig.ConditionFileNotEmpty = "${secretsDir}/tailscale-authkey";
   };
 
-  # Copy the template onto the firmware partition of the image.
+  # Place the host-specific soloist.env directly on the firmware partition of the SD image.
   sdImage.populateFirmwareCommands = lib.mkForce (
     lib.mkAfter ''
-      cp ${./soloist.env.example} firmware/soloist.env.example
+      cp ${soloistEnvTemplate} firmware/soloist.env
     ''
   );
 }

@@ -17,13 +17,24 @@ The target SD image (`sdImage`) formats the card into two partitions:
 
 The `/boot/firmware/soloist.env` file enables zero-touch setup without requiring serial consoles, displays, or keyboards.
 
-### 2.1 Secure Parsing (`soloist-config.service`)
+### 2.1 Dynamic Host-Specific Template Generation
+The environment template is dynamically generated per device profile (`soloistEnvTemplate` in `hosts/sd-config.nix`):
+- Only features enabled for the specific device are included (e.g. `ONKYO_HOST` is included only for devices with `onkyo.enable = true` such as `television`, and omitted for `chambre-de-leo` and `chambre-de-sarah`).
+- In generated SD card images, it is written directly as `soloist.env` on the `FIRMWARE` partition—no copying or `.example` renaming required.
+
+### 2.2 In-Place Auto-Merge during Upgrades (`update-soloist-env`)
+Whenever a system upgrade occurs (`nixos-upgrade.service`, `pi-update`, or boot into a new generation):
+- `update-soloist-env` parses the existing `/boot/firmware/soloist.env` to extract current user values.
+- It scans the new generation's template, keeping updated documentation and new configuration keys, while repopulating all existing user-defined values (preserving quotes and custom settings).
+- The file on the FAT partition is atomically replaced in-place. User credentials are never lost, and new settings/comments are automatically merged.
+
+### 2.3 Secure Parsing (`soloist-config.service`)
 `soloist.env` is **never sourced** by a shell to eliminate arbitrary code execution risks:
 - Parsed line-by-line via a strict bash script running under `LC_ALL=C`.
 - Format: `KEY=value` (whitespace trimmed, quotes optional but preserve internal spaces).
 - Comment lines (`#`) and empty lines are discarded.
 
-### 2.2 In-Memory Secrets (`/run/soloist-secrets`)
+### 2.4 In-Memory Secrets (`/run/soloist-secrets`)
 During boot, `soloist-config.service` populates a RAM-backed `tmpfs` directory:
 - Permissions: `0700` owned by `root:root`.
 - Generated secret and configuration files:

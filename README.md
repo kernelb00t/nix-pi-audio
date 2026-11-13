@@ -92,7 +92,7 @@ zstd -dc result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status
 
 Re-insert the flashed SD card into your computer. The FAT32 partition (`FIRMWARE`) will mount automatically.
 
-Copy `soloist.env.example` to `soloist.env` and fill in your settings:
+Open `soloist.env` directly on the partition and fill in your settings (pre-generated specifically for your device profile, no copying or renaming required):
 
 ```ini
 # Wi-Fi Configuration
