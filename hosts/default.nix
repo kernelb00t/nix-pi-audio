@@ -20,6 +20,7 @@ in
     nixos-hardware.nixosModules.raspberry-pi-4
     "${modulesPath}/installer/sd-card/sd-image.nix"
     ./sd-config.nix
+    ./autoupgrade.nix
     ./soloist.nix
     ./airplay.nix
     ./bluetooth.nix
@@ -41,9 +42,10 @@ in
 
   # Kernel: the nixos-hardware Raspberry Pi kernel (it is in no binary cache),
   # cross-compiled from x86_64 if requested. It only depends on the
-  # nixpkgs-kernel and nixos-hardware-kernel pins (flake.lock), bumped by the
-  # "kernel" workflow, and is published as a release (not rebuilt in
-  # the image workflow).
+  # nixpkgs-kernel and nixos-hardware-kernel pins (flake.lock), bumped weekly by
+  # the "kernel" workflow, and is built by the "ci" workflow, which pushes it to
+  # the Cachix cache (autoupgrade.nix): the Pis and the image workflow download
+  # it.
   # autoModules = false: bcm2711_defconfig plus the NixOS options, instead of
   # turning every driver of the tree into a module (aarch64 default). Several
   # times less to compile; enough for a Pi that only plays audio.

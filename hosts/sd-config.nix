@@ -102,6 +102,15 @@ let
           echo "SHELLY_HOST must be an IP address or host name (letters, digits, . and -): ignored" >&2
         fi
       fi
+      # Optional: Discord webhook for the automatic update notifications
+      # (autoupgrade.nix). A secret: its value is never printed.
+      if [ -n "''${v[DISCORD_WEBHOOK]:-}" ]; then
+        if [[ "''${v[DISCORD_WEBHOOK]}" =~ ^https://discord\.com/api/webhooks/[0-9]+/[A-Za-z0-9_-]+$ ]]; then
+          printf '%s' "''${v[DISCORD_WEBHOOK]}" > ${secretsDir}/discord-webhook
+        else
+          echo "DISCORD_WEBHOOK must look like https://discord.com/api/webhooks/<id>/<token>: ignored" >&2
+        fi
+      fi
     '';
   };
 in

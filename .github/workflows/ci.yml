@@ -1,0 +1,171 @@
+name: ci
+
+# CI of the development branch (main). On every push to main:
+#   1. evaluates both hosts;
+#   2. if the Raspberry Pi kernel derivation differs from the one of the "prod"
+#      branch (or is not in the Cachix cache yet), builds the kernel and
+#      pushes it to the Cachix cache; otherwise skips this step;
+#   3. builds (or fetches) the system of both hosts and checks the flake;
+#   4. only if all of this passed, fast-forwards "prod" to this commit (never
+#      forced). The Pis follow "prod" (hosts/autoupgrade.nix).
+# Needs the repository secret CACHIX_AUTH_TOKEN (write token of the cache).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, never cancelled in the middle of a kernel build.
+concurrency:
+  group: ci
+  cancel-in-progress: false
+
+env:
+  CACHE_NAME: kernelb00t
+  CACHE_URL: https://kernelb00t.cachix.org
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Check the Cachix secret
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          if [ -z "$CACHIX_AUTH_TOKEN" ]; then
+            echo "::error title=CACHIX_AUTH_TOKEN missing::Add the repository secret CACHIX_AUTH_TOKEN (Settings > Secrets and variables > Actions): a write token of the Cachix cache '$CACHE_NAME'. Without it the kernel cannot be pushed and the Pis would compile it themselves, so this workflow stops here."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Set up aarch64 emulation
+        uses: docker/setup-qemu-action@v4.4.0
+        with:
+          platforms: arm64
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31.11.5
+        with:
+          extra_nix_config: |
+            extra-platforms = aarch64-linux
+
+      # skipPush: nothing is pushed automatically at the end of the job (it
+      # would upload every path built or downloaded); pushes are explicit below.
+      - name: Set up Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: kernelb00t
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: true
+
+      - name: Evaluate both hosts
+        run: |
+          for host in chambre-de-leo chambre-de-sarah; do
+            drv=$(nix eval --raw ".#nixosConfigurations.$host.config.system.build.toplevel.drvPath")
+            echo "$host: $drv"
+          done
+
+      - name: Does the kernel differ from prod?
+        id: kernel
+        run: |
+          attr() { echo "$1#nixosConfigurations.$2.config.boot.kernelPackages.kernel"; }
+          hosts="chambre-de-leo chambre-de-sarah"
+          have_prod=false
+          if git rev-parse --verify --quiet origin/prod >/dev/null; then
+            have_prod=true
+            git worktree add --detach "$RUNNER_TEMP/prod" origin/prod
+          else
+            echo "::warning::Branch prod does not exist yet: the kernel is considered changed."
+          fi
+          : > "$RUNNER_TEMP/kernel-drvs"
+          changed=false
+          for host in $hosts; do
+            new=$(nix eval --raw "$(attr . "$host").drvPath")
+            echo "$host kernel (this commit): $new"
+            echo "$new" >> "$RUNNER_TEMP/kernel-drvs"
+            if [ "$have_prod" = true ]; then
+              old=$(cd "$RUNNER_TEMP/prod" && nix eval --raw "$(attr . "$host").drvPath")
+              echo "$host kernel (prod):        $old"
+              [ "$new" = "$old" ] || changed=true
+            else
+              changed=true
+            fi
+          done
+          # Same derivation as prod but never pushed (first run, cache emptied):
+          # the Pis would compile it, so push it anyway.
+          out=$(nix eval --raw "$(attr . chambre-de-leo).outPath")
+          if [ "$changed" = false ] && ! nix path-info --store "$CACHE_URL" "$out" >/dev/null 2>&1; then
+            echo "Kernel $out is not in the cache: building it."
+            changed=true
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Kernel changed or missing from the cache: $changed"
+
+      - name: Build the kernel and push it to the cache
+        if: steps.kernel.outputs.changed == 'true'
+        run: |
+          sort -u "$RUNNER_TEMP/kernel-drvs" | while read -r drv; do
+            # All outputs of the kernel derivation.
+            nix build -L --cores 0 --no-link --print-out-paths "$drv^*"
+          done | sort -u > "$RUNNER_TEMP/kernel-outs"
+          [ -s "$RUNNER_TEMP/kernel-outs" ] || { echo "::error::no kernel output"; exit 1; }
+          # cachix push also sends the closure of the paths.
+          xargs cachix push "$CACHE_NAME" < "$RUNNER_TEMP/kernel-outs"
+
+      - name: Build both systems
+        run: |
+          # Kernel from the cache (or just built); the rest from cache.nixos.org.
+          nix build -L --cores 0 --max-jobs auto --no-link --print-out-paths \
+            .#nixosConfigurations.chambre-de-leo.config.system.build.toplevel \
+            .#nixosConfigurations.chambre-de-sarah.config.system.build.toplevel \
+            | tee "$RUNNER_TEMP/toplevels"
+
+      # Paths that cache.nixos.org does not have (shairport-sync with AirPlay 2,
+      # generated configuration...): so that the Pis do not build them.
+      - name: Push the systems to the cache
+        run: xargs cachix push "$CACHE_NAME" < "$RUNNER_TEMP/toplevels"
+
+      - name: Check the flake
+        run: nix flake check --no-build
+
+  promote:
+    # Only the development branch moves prod.
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward prod
+        run: |
+          git fetch origin prod || { echo "::error::Branch prod does not exist: create it once (git push origin main:prod)."; exit 1; }
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/prod; then
+            echo "prod already contains $GITHUB_SHA: nothing to do."
+            exit 0
+          fi
+          if ! git merge-base --is-ancestor origin/prod "$GITHUB_SHA"; then
+            echo "::error::prod is not an ancestor of $GITHUB_SHA: not a fast-forward, prod is left untouched (merge prod into main, see README)."
+            exit 1
+          fi
+          # No --force: git refuses anything but a fast-forward.
+          git push origin "$GITHUB_SHA:refs/heads/prod"

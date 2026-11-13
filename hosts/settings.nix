@@ -28,4 +28,10 @@
   # it from x86_64-linux (fast, for any x86_64 Linux builder);
   # false: build it natively on aarch64 (the Pi itself, an aarch64 builder).
   crossCompileKernel = true;
+
+  # Automatic nightly update from the prod branch (autoupgrade.nix). false: the
+  # new generation is activated without reboot (a Discord message says when a
+  # reboot is needed, if DISCORD_WEBHOOK is set). true: the Pi reboots by
+  # itself between 04:00 and 05:30 when the kernel or firmware changed.
+  autoUpgradeReboot = false;
 }

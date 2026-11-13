@@ -1,18 +1,15 @@
 name: image
 
 # Builds the SD card images of hosts/ (one per device, see
-# hosts/devices/). The kernel is NOT built here: it is published by
-# the "kernel" workflow (weekly) as a release and imported below.
-# The rest comes from cache.nixos.org. The image is published as a workflow
+# hosts/devices/), on demand only: by hand (Run workflow) or on a version tag
+# (v*). The kernel is NOT built here: the "ci" workflow pushes it to the
+# Cachix cache, and this workflow fails at once if it is not there. The rest
+# comes from cache.nixos.org and Cachix. The image is published as a workflow
 # artifact.
 
 on:
   push:
-    paths:
-      - "hosts/**"
-      - "flake.nix"
-      - "flake.lock"
-      - ".github/workflows/image.yml"
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       runner:
@@ -25,7 +22,7 @@ permissions:
   contents: read
 
 env:
-  GH_TOKEN: ${{ github.token }}
+  CACHE_URL: https://kernelb00t.cachix.org
 
 concurrency:
   group: image-${{ github.ref }}
@@ -40,7 +37,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Free disk space
         run: |
@@ -49,35 +46,36 @@ jobs:
 
       - name: Set up aarch64 emulation
         if: runner.arch == 'X64'
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4.4.0
         with:
           platforms: arm64
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31
+        uses: cachix/install-nix-action@v31.11.5
         with:
           extra_nix_config: |
             extra-platforms = aarch64-linux
 
-      # The Raspberry Pi kernel is in no binary cache: the "kernel"
-      # workflow publishes it as a release named after its store hash.
-      - name: Import kernel
+      # Read-only use of the cache (no token): kernel and AirPlay 2 build.
+      - name: Set up Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: kernelb00t
+          skipPush: true
+
+      - name: Check that the kernel is in the cache
         run: |
           out=$(nix eval --raw .#nixosConfigurations.${{ matrix.device }}.config.boot.kernelPackages.kernel.outPath)
-          tag="kernel-$(basename "$out" | cut -d- -f1)"
-          if ! gh release download "$tag" --pattern kernel.nar.zst; then
-            echo "::error::Kernel $tag is not published. Run the workflow 'kernel' (Actions tab, Run workflow), wait for it to finish, then re-run this one. Do not wait for a compilation here."
+          if ! nix path-info --store "$CACHE_URL" "$out" >/dev/null 2>&1; then
+            echo "::error::Kernel $out is not in the Cachix cache. Run the 'ci' workflow on main (it builds and pushes the kernel), then re-run this one. Do not wait for a compilation here."
             exit 1
           fi
-          zstd -dc kernel.nar.zst | sudo "$(command -v nix-store)" --import > /dev/null
-          rm kernel.nar.zst
-          nix path-info "$out"
 
       - name: Build image
         run: nix build -L --cores 0 --max-jobs auto .#${{ matrix.device }}-image
 
       - name: Upload image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ matrix.device }}-sd-image
           path: result/sd-image/*.img.zst
