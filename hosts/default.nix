@@ -95,12 +95,22 @@ in
     '';
   };
 
-  # Audio output, through config.txt (applied by the firmware).
+  # Audio output and LEDs, through config.txt (applied by the firmware).
   hardware.raspberry-pi.configtxt = {
-    settings.all = lib.mkIf amp2 {
-      # Onboard audio off; the HAT EEPROM must not load its own overlay.
-      dtparam = [ "audio=off" ];
-      force_eeprom_read = 0;
+    settings.all = {
+      # Onboard audio: off for HiFiBerry Amp2, on for 3.5 mm jack (chambre-de-sarah).
+      # Setting dtparam explicitly ensures audio stays enabled for the jack while
+      # adding parameters to disable the activity and power LEDs.
+      dtparam = [
+        (if amp2 then "audio=off" else "audio=on")
+        # Turn off ACT (activity) and PWR (power) LEDs.
+        "act_led_trigger=none"
+        "act_led_activelow=off"
+        "pwr_led_trigger=none"
+        "pwr_led_activelow=off"
+      ];
+      # HiFiBerry Amp2: the HAT EEPROM must not load its own overlay.
+      force_eeprom_read = lib.mkIf amp2 0;
     };
     deviceTreeOverlays.all = [
       # No HDMI audio: a single output, so it is the default one.
@@ -109,6 +119,11 @@ in
     # HiFiBerry Amp2 on kernels >= 6.1.77 (HiFiBerry documentation).
     ++ lib.optional amp2 { hifiberry-dacplus-std = { }; };
   };
+
+  # Turn off ACT and PWR LEDs if re-enabled by the kernel or drivers at boot.
+  services.udev.extraRules = ''
+    ACTION=="add", SUBSYSTEM=="leds", KERNEL=="*act*|*pwr*|*ACT*|*PWR*|led[01]", ATTR{trigger}="none", ATTR{brightness}="0"
+  '';
 
   # Amp2: the onboard headphones card (snd_bcm2835) still shows up although
   # audio is off in config.txt, and PipeWire picked it as the default output.
@@ -122,6 +137,9 @@ in
     alsa.enable = true;
     pulse.enable = false;
     wireplumber.enable = true;
+    wireplumber.extraConfig."50-default-volume"."wireplumber.settings" = {
+      "device.routes.default-sink-volume" = 1.0;
+    };
     wireplumber.extraConfig."50-soloist"."monitor.alsa.rules" = [
       {
         matches = [ { "node.name" = "~alsa_output.*"; } ];
