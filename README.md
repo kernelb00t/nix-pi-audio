@@ -15,6 +15,7 @@
 > [!NOTE]
 > This project was designed and developed with the assistance of artificial intelligence agents (**Claude Code** and **Antigravity**).  
 > The [`spec/`](spec/) directory contains the formal architectural specifications that serve as the project's single source of truth.
+> This is used daily, so it should be perfectly fine, but as always review any code running on your machines.
 
 ---
 
