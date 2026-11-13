@@ -1,8 +1,9 @@
-# Automatic updates: every night the Pi switches to the "prod" branch of the
-# repository (moved by the ci workflow only when everything builds), and
-# downloads the kernel and the rest from the Cachix cache. Failures and
-# pending reboots are reported on Discord if DISCORD_WEBHOOK is set in
-# soloist.env (see sd-config.nix). See README.md.
+# Updates from the "prod" branch of the repository (moved by the ci workflow only
+# when everything builds); the kernel and the rest come from the Cachix cache.
+#  - pi-update: command to run over SSH, updates this Pi now.
+#  - nightly automatic update: off by default (settings.autoUpgrade).
+# Failures and pending reboots are reported on Discord if DISCORD_WEBHOOK is set
+# in soloist.env (see sd-config.nix). See README.md.
 {
   config,
   lib,
@@ -65,10 +66,36 @@ $tail"
     done
     rm -f ${notifiedFile}
   '';
+  # pi-update [branch]: switch this Pi to the latest version of the branch
+  # (default: prod). To run over SSH as the admin user.
+  piUpdate = pkgs.writeShellApplication {
+    name = "pi-update";
+    runtimeInputs = with pkgs; [
+      coreutils
+      nixos-rebuild
+      sudo
+    ];
+    text = ''
+      branch="''${1:-prod}"
+      echo "Updating ${settings.hostName} from branch $branch..."
+      sudo nixos-rebuild switch --refresh \
+        --flake "github:kernelb00t/nix-pi-audio/$branch#${settings.hostName}"
+      for f in kernel initrd kernel-modules firmware; do
+        if [ "$(readlink -f /run/booted-system/$f || true)" != "$(readlink -f /run/current-system/$f || true)" ]; then
+          echo
+          echo "The kernel or firmware changed: reboot the Pi to use it (sudo reboot)."
+          exit 0
+        fi
+      done
+      echo "Done. No reboot needed."
+    '';
+  };
 in
 {
+  environment.systemPackages = [ piUpdate ];
+
   system.autoUpgrade = {
-    enable = true;
+    enable = settings.autoUpgrade;
     flake = "github:kernelb00t/nix-pi-audio/prod#${settings.hostName}";
     operation = "switch";
     dates = "04:30";

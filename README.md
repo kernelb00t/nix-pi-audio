@@ -67,6 +67,18 @@ If `SHELLY_HOST` is set in `soloist.env`, the arbiter also drives a Shelly
 (`Switch.Set`): on when a source plays, off 20 seconds after the last one
 stops (`shellyOffDelaySec`). It never touches the plug while idle at boot. 
 
+## Updating a Pi
+
+Over SSH on the Pi, as the admin user:
+
+```bash
+pi-update            # switch to the latest "prod" (kernel and packages come from the Cachix cache)
+pi-update main       # or to another branch (e.g. to try something before it is promoted)
+```
+
+It tells you when the kernel or firmware changed and a reboot is needed. The nightly
+automatic update exists but is off (`autoUpgrade = false` in `hosts/settings.nix`).
+
 ## SD card wear
 
 - Logs are in RAM only (`Storage=volatile`, 50 MB): they are lost at reboot, so
