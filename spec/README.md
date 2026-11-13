@@ -1,50 +1,50 @@
-# Spécifications du Projet `nix-pi-audio`
+# `nix-pi-audio` Specifications
 
-> **Principe fondamental :** Ce dossier constitue la **Source Unique de Vérité** (*Single Source of Truth*) du projet. Le code source et les modules NixOS ne sont que la matérialisation de ces spécifications. Tout contributeur humain ou agent d'intelligence artificielle doit se référer à ces fiches avant d'apporter des modifications architecturales ou fonctionnelles.
+> **Core Principle:** This directory constitutes the **Single Source of Truth** for the project. The codebase and NixOS modules are an implementation of these specifications. Any contributor (human or AI agent) must consult and adhere to these specifications before making architectural or functional modifications.
 
 ---
 
-## 📑 Sommaire des Fiches de Spécification
+## 📑 Specification Index
 
-| N° | Fiche | Description |
+| Document | Topic | Description |
 |:---|:---|:---|
-| **01** | [`01-architecture-and-pipeline.md`](01-architecture-and-pipeline.md) | Pile audio logicielle, PipeWire système, WirePlumber, égaliseur paramétrique DSP. |
-| **02** | [`02-audio-sources-and-arbitration.md`](02-audio-sources-and-arbitration.md) | Sources (Spotify Soloist, AirPlay 2, Bluetooth) et arbitre audio intelligent (`arbiter.py`). |
-| **03** | [`03-hardware-and-devices.md`](03-hardware-and-devices.md) | Matériel Raspberry Pi 4, cartes son (Jack, Amp2, Digi), LEDs indicatrices, profils d'hôtes. |
-| **04** | [`04-onkyo-receiver-bridge.md`](04-onkyo-receiver-bridge.md) | Protocole eISCP, pont Onkyo (auto-découverte UDP, allumage, rampe subwoofer, volume, veille). |
-| **05** | [`05-bootstrap-configuration-and-secrets.md`](05-bootstrap-configuration-and-secrets.md) | Fichier `soloist.env`, secrets en RAM, Wi-Fi wpa_supplicant, protection de la carte SD. |
-| **06** | [`06-ci-cd-and-upgrade-lifecycle.md`](06-ci-cd-and-upgrade-lifecycle.md) | Pipeline CI/CD, cross-compilation noyau, cache Cachix, autoupgrade nocturne et Renovate. |
+| **01** | [`01-architecture-and-pipeline.md`](01-architecture-and-pipeline.md) | Audio Pipeline | PipeWire system-wide server, WirePlumber routing, DSP parametric equalizer. |
+| **02** | [`02-audio-sources-and-arbitration.md`](02-audio-sources-and-arbitration.md) | Sources & Arbitration | Soloist (Spotify), AirPlay 2, Bluetooth, and smart source arbiter (`arbiter.py`). |
+| **03** | [`03-hardware-and-devices.md`](03-hardware-and-devices.md) | Hardware & Devices | Raspberry Pi 4 platform, audio HATs (Jack, Amp2, Digi), LED indicators, device profiles. |
+| **04** | [`04-onkyo-receiver-bridge.md`](04-onkyo-receiver-bridge.md) | Onkyo Receiver Bridge | eISCP protocol, UDP auto-discovery, power control, subwoofer ramp, volume management. |
+| **05** | [`05-bootstrap-configuration-and-secrets.md`](05-bootstrap-configuration-and-secrets.md) | Bootstrap & Secrets | FAT32 `soloist.env`, secrets in RAM, WPA2/WPA3 Wi-Fi, SD card flash protection. |
+| **06** | [`06-ci-cd-and-upgrade-lifecycle.md`](06-ci-cd-and-upgrade-lifecycle.md) | CI/CD & Upgrades | Two-tier flake inputs, kernel cross-compilation, Cachix binary cache, nightly auto-upgrade. |
 
 ---
 
-## 🎯 Objectifs et Philosophie du Système
+## 🎯 Architecture Goals & Philosophy
 
-1. **Expérience Audiophile Headless « Zéro Friction » :**
-   Le système fonctionne sans écran, sans clavier et sans application propriétaire dédiée. Tout se contrôle depuis les applications natives des utilisateurs (Spotify Connect, AirPlay 2 iOS/macOS, Bluetooth Android/Windows).
+1. **Zero-Friction Headless Audiophile Experience:**  
+   The system runs entirely headless with no display, no local UI, and no custom client app. Users interact exclusively through their native apps: Spotify Connect, iOS/macOS AirPlay 2, or Android/Windows Bluetooth A2DP.
 
-2. **Résolution Automatique des Conflits (« Dernier Arrivé Gagne ») :**
-   Une seule source audio peut jouer à la fois. Lorsqu'un utilisateur lance un morceau sur une autre source, la source précédente est déconnectée proprement (pas simplement mise en pause) pour libérer la carte son et signaler à l'application cliente qu'elle n'a plus la main.
+2. **Automatic Conflict Resolution ("Last Playing Source Wins"):**  
+   Only one source may output audio at any time. When a user starts playback from a new source, the previous source is cleanly disconnected (not merely paused or muted). This immediately notifies the previous client application and releases the audio pipeline.
 
-3. **Protection Matérielle et Pérennité :**
-   - **Protection de la carte SD :** Aucun log ni cache n'est écrit sur le support flash en fonctionnement normal (journald volatile en RAM, tmpfs pour `/tmp` et le cache Soloist, `noatime`, commit par lots toutes les 60 secondes).
-   - **Protection des enceintes / subwoofers :** Rampes de volume progressives à la mise sous tension de l'amplificateur Onkyo pour éviter les chocs acoustiques et la saturation de l'étage de grave.
-   - **Indication visuelle claire :** Les LEDs de statut intégrées du Pi restent allumées au démarrage tant que l'ensemble des démons audio ne sont pas sains et prêts.
+3. **Hardware Longevity & Acoustic Safety:**  
+   - **SD Card Protection:** No logs or caches are written to flash storage during normal operation (`journald` in RAM tmpfs, `/tmp` in tmpfs, Spotify playback cache in RAM, `noatime`, 60-second batch write commits).
+   - **Acoustic Protection (Subwoofer Ramp):** The Onkyo AV receiver bridge enforces a soft logarithmic volume ramp when powering on from standby, protecting active subwoofers from power-on transients.
+   - **Hardware Health Visual Indicator:** Onboard ACT and PWR LEDs remain lit throughout boot and extinguish only after all audio services are confirmed healthy.
 
-4. **Automatisation Totale du Cycle de Vie :**
-   - Les Pi ne compilent **aucun paquet** localement.
-   - Le noyau est cross-compilé en x86_64 sur GitHub Actions en 3 minutes.
-   - Les mises à jour sont validées en CI sur `main`, promues sur `prod`, puis déployées automatiquement la nuit sans coupure.
+4. **Zero-Compilation on Edge Devices:**  
+   - Raspberry Pis never compile packages locally.
+   - The Linux kernel is cross-compiled from x86_64 in CI in under 4 minutes.
+   - Updates are continuously cached in Cachix and automatically deployed nightly without interruptions.
 
 ---
 
-## 📖 Glossaire & Abréviations
+## 📖 Glossary & Key Terms
 
-- **A2DP :** *Advanced Audio Distribution Profile* (profil audio stéréo Bluetooth).
-- **ALSA :** *Advanced Linux Sound Architecture* (pilotes et sous-système audio noyau Linux).
-- **Arbiter :** Démon Python (`audio-arbiter.service`) coordonnant l'arbitrage exclusif entre les flux audio.
-- **eISCP :** *Ethernet Interactive Serial Control Protocol* (protocole réseau Onkyo/Pioneer sur les ports TCP/UDP 60128).
-- **HAT :** *Hardware Attached on Top* (carte fille d'extension pour Raspberry Pi, ex: HiFiBerry).
-- **nqptp :** *Not Quite PTP* (démon de synchronisation d'horloge réseau pour AirPlay 2).
-- **PEQ :** *Parametric Equalizer* (égaliseur paramétrique DSP à base de biquads PipeWire).
-- **Soloist :** Démon officiel et propriétaire Spotify Connect pour Linux embarqué.
-- **S/PDIF :** *Sony/Philips Digital Interface* (sortie audio numérique optique/coaxiale).
+- **A2DP:** *Advanced Audio Distribution Profile* (Bluetooth stereo audio streaming).
+- **ALSA:** *Advanced Linux Sound Architecture* (Linux kernel sound subsystem).
+- **Arbiter:** Background daemon (`audio-arbiter.service`) managing mutual exclusivity among audio inputs.
+- **eISCP:** *Ethernet Interactive Serial Control Protocol* (network control protocol used by Onkyo/Pioneer AV receivers on TCP/UDP port 60128).
+- **HAT:** *Hardware Attached on Top* (Raspberry Pi expansion board, e.g. HiFiBerry Amp2 or Digi).
+- **nqptp:** *Not Quite PTP* (Network Precision Time Protocol clock daemon for AirPlay 2).
+- **PEQ:** *Parametric Equalizer* (digital audio filter chain using PipeWire biquad primitives).
+- **Soloist:** Official Spotify Connect daemon for embedded Linux.
+- **S/PDIF:** *Sony/Philips Digital Interface* (optical/coaxial digital audio output).

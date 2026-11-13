@@ -1,68 +1,68 @@
-# Spécification 05 : Bootstrap, Configuration & Gestion des Secrets
+# Specification 05: Bootstrap, Configuration & Secrets Management
 
-## 1. Structure du Support de Stockage (Carte SD)
+## 1. SD Card Storage Architecture
 
-L'image générée (`sdImage`) partitionne la carte SD en deux volumes distincts :
+The target SD image (`sdImage`) formats the card into two partitions:
 
-1. **Partition Firmware FAT32 (`/boot/firmware`) :**
-   - Taille : **64 Mo** (optimisée pour minimiser l'empreinte disque).
-   - Lisible et modifiable nativement sur n'importe quel ordinateur (macOS, Windows, Linux) sans pilote additionnel.
-   - Héberge le firmware Broadcom, le noyau Linux, `config.txt`, et le fichier de configuration utilisateur `soloist.env`.
-2. **Partition Système Ext4 (`/`) :**
-   - Formate le reste de l'espace pour le magasin Nix (`/nix/store`) et le système d'exploitation NixOS.
-
----
-
-## 2. Contrat de Configuration : `soloist.env`
-
-Le fichier `/boot/firmware/soloist.env` constitue l'interface de paramétrage utilisateur sans écran (*Zero-Touch Configuration*).
-
-### 2.1 Analyseur Sécurisé (`soloist-config.service`)
-Le fichier `soloist.env` n'est **jamais sourcé** par un shell pour prévenir toute injection de commande arbitraire :
-- Il est analysé ligne par ligne par un script Bash strict (`LC_ALL=C`).
-- Format attendu : `CLE=VALEUR` (espaces tolérés, guillemets optionnels mais préservant les espaces internes).
-- Les lignes vides ou débutant par `#` sont ignorées.
-
-### 2.2 Répertoire des Secrets en RAM (`/run/soloist-secrets`)
-Au boot, `soloist-config.service` extrait les paramètres et les écrit dans un répertoire temporaire en mémoire vive (`tmpfs`) :
-- Permissions strictes : `0700` appartenant à `root:root`.
-- Fichiers générés :
-  - `soloist-api-key` : Clé d'API Spotify Soloist (lue par `soloist.service`).
-  - `tailscale-authkey` : Clé d'authentification Tailscale pour le premier enregistrement.
-  - `shelly-host` : Adresse IP ou nom de la prise d'alimentation des enceintes.
-  - `discord-webhook` : URL du webhook Discord pour les alertes de mise à jour.
-  - `onkyo-host` : Adresse IP Onkyo ou instruction `false`.
-  - `onkyo-disabled` : Fichier marqueur créé si `ONKYO_HOST=false` pour inhiber le service systemd.
+1. **FAT32 Firmware Partition (`/boot/firmware`):**
+   - Size: **64 MB** (compact footprint).
+   - Read/write compatible out-of-the-box on macOS, Windows, and Linux PCs.
+   - Houses Broadcom boot firmware, kernel binary, `config.txt`, and user configuration `soloist.env`.
+2. **Ext4 System Partition (`/`):**
+   - Uses the remaining SD storage for the immutable Nix store (`/nix/store`) and NixOS root files.
 
 ---
 
-## 3. Génération de la Configuration Wi-Fi
+## 2. Configuration Contract: `soloist.env`
 
-`soloist-config.service` génère un fichier de configuration impératif pour `wpa_supplicant` dans `/etc/wpa_supplicant/imperative.conf` :
-- **Sécurité SSID :** Le nom du réseau (SSID) est encodé en hexadécimal pur (`od -An -v -tx1`) afin d'éviter tout bogue lié aux caractères spéciaux, espaces ou émoticônes dans le nom de la box.
-- **Protocoles supportés :** Transition fluide WPA2-PSK et WPA3-SAE (`ieee80211w=1`).
-- **Mode Ethernet :** Si `WIFI_SSID` est laissé vide, le fichier Wi-Fi n'est pas configuré et le système utilise exclusivement l'interface filaire `eth0`.
-- **Permissions :** Le fichier est restreint à `chmod 0600` sous la propriété de l'utilisateur système `wpa_supplicant`.
+The `/boot/firmware/soloist.env` file enables zero-touch setup without requiring serial consoles, displays, or keyboards.
+
+### 2.1 Secure Parsing (`soloist-config.service`)
+`soloist.env` is **never sourced** by a shell to eliminate arbitrary code execution risks:
+- Parsed line-by-line via a strict bash script running under `LC_ALL=C`.
+- Format: `KEY=value` (whitespace trimmed, quotes optional but preserve internal spaces).
+- Comment lines (`#`) and empty lines are discarded.
+
+### 2.2 In-Memory Secrets (`/run/soloist-secrets`)
+During boot, `soloist-config.service` populates a RAM-backed `tmpfs` directory:
+- Permissions: `0700` owned by `root:root`.
+- Generated secret and configuration files:
+  - `soloist-api-key`: Spotify Soloist client key.
+  - `tailscale-authkey`: Auth key for initial headless Tailscale node registration.
+  - `shelly-host`: IP or hostname of the speaker power switch.
+  - `discord-webhook`: Webhook URL for update failure/reboot alerts.
+  - `onkyo-host`: IP address, host name, or `"false"`.
+  - `onkyo-disabled`: Marker file created if `ONKYO_HOST=false` to inhibit `onkyo-bridge.service`.
 
 ---
 
-## 4. Stratégie de Longévité de la Carte SD (*Flash Wear Prevention*)
+## 3. Wi-Fi Configuration Generation
 
-Les cartes micro-SD s'usent rapidement lorsqu'elles subissent des écritures aléatoires fréquentes. NixOS est durci pour réduire ces écritures au strict minimum :
+`soloist-config.service` dynamically renders `/etc/wpa_supplicant/imperative.conf`:
+- **SSID Safety:** The network name (SSID) is converted to hexadecimal (`od -An -v -tx1`) to eliminate escaping issues with special characters, spaces, or emojis.
+- **Protocol Transition:** Configures transition mode supporting both WPA2-PSK and WPA3-SAE (`ieee80211w=1`).
+- **Ethernet Fallback:** If `WIFI_SSID` is empty, no Wi-Fi network is written and the system communicates solely via `eth0`.
+- **Permissions:** File mode is locked to `0600` under user `wpa_supplicant`.
 
-1. **Journaux système volatils :**
+---
+
+## 4. SD Card Flash Wear Prevention
+
+Random small writes degrade micro-SD cards rapidly. NixOS is hardened against flash wear:
+
+1. **Volatile In-Memory Logs:**
    ```nix
    services.journald.settings.Journal = {
      Storage = "volatile";
      RuntimeMaxUse = "50M";
    };
    ```
-   Les logs système sont stockés en RAM et ne sont jamais écrits sur la carte SD. (En cas de redémarrage, ils sont réinitialisés ; pour déboguer, lire le journal avant de rebooter).
-2. **Répertoires temporaires en RAM :**
-   `boot.tmp.useTmpfs = true;` monte `/tmp` en mémoire vive.
-3. **Cœur du système de fichiers :**
-   - Option `noatime` : Empêche la mise à jour de la date de dernier accès lors de la lecture d'un fichier.
-   - Option `commit=60` : Regroupe les écritures disque en mémoire tampon et ne les vide sur la carte SD que par lots toutes les 60 secondes.
-   - Réglages sysctl `vm.dirty_writeback_centisecs = 6000` et `vm.dirty_expire_centisecs = 6000`.
-4. **Pas de Garbage Collector agressif :**
-   Aucun nettoyage automatique quotidien du store Nix n'est programmé afin d'éviter les réécritures massives de blocs flash.
+   System logs reside strictly in RAM and are never persisted to flash.
+2. **RAM-Backed Temp Directories:**
+   `boot.tmp.useTmpfs = true;` places `/tmp` in tmpfs.
+3. **Filesystem Mount Options:**
+   - `noatime`: Disables access timestamp writes when files are read.
+   - `commit=60`: Batches metadata and data commits to the SD card once every 60 seconds.
+   - Kernel sysctl: `vm.dirty_writeback_centisecs = 6000`, `vm.dirty_expire_centisecs = 6000`.
+4. **No Automated Garbage Collection Rewrite Cycles:**
+   Automatic store optimization and daily garbage collection are disabled to prevent bulk block rewriting on the card.

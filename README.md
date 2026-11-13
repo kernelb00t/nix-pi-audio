@@ -13,8 +13,8 @@
 </p>
 
 > [!NOTE]
-> Ce projet a été intégralement conçu et développé avec l'assistance d'agents d'intelligence artificielle (**Claude Code** et **Antigravity**).  
-> Le dossier [`spec/`](spec/) contient les fiches de spécifications architecturales complètes qui font foi pour la maintenance et l'évolution du système.
+> This project was designed and developed with the assistance of artificial intelligence agents (**Claude Code** and **Antigravity**).  
+> The [`spec/`](spec/) directory contains the formal architectural specifications that serve as the project's single source of truth.
 
 ---
 

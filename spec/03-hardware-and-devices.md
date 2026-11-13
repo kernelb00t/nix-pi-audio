@@ -1,77 +1,77 @@
-# Spécification 03 : Matériel, Cartes Son & Profils d'Hôtes
+# Specification 03: Hardware, Sound Cards & Device Profiles
 
-## 1. Plateforme Cible
+## 1. Target Hardware Platform
 
-- **Micro-ordinateur :** Raspberry Pi 4 Model B (Broadcom BCM2711, ARM Cortex-A72 quadri-cœur 1.5 GHz, 2 Go à 8 Go de RAM LPDDR4).
-- **Architecture NixOS :** `aarch64-linux`.
-- **Amorçage :** Firmware Raspberry Pi -> U-Boot -> Extlinux (`extlinux.conf`).
-- **Délai de bootloader :** `boot.loader.timeout = 0;` (démarrage instantané sans attendre les 5 secondes par défaut de Syslinux/Extlinux).
+- **Single-Board Computer:** Raspberry Pi 4 Model B (Broadcom BCM2711, quad-core Cortex-A72 @ 1.5 GHz, 2 GB to 8 GB LPDDR4 RAM).
+- **Architecture:** `aarch64-linux`.
+- **Boot Flow:** Broadcom firmware -> U-Boot -> Extlinux (`extlinux.conf`).
+- **Boot Timeout:** `boot.loader.timeout = 0;` (bypasses the default 5-second syslinux boot menu delay for instant startup).
 
 ---
 
-## 2. Périphériques Audio & Overlays Matériels
+## 2. Audio Hardware & Device Tree Overlays
 
-Le paramètre `audioOutput` dans la configuration d'un hôte sélectionne la carte son physique :
+The `audioOutput` setting in an individual device profile selects and configures the physical audio interface:
 
-| Valeur de `audioOutput` | Périphérique physique | Overlay `config.txt` | Modules noyau blacklistés |
+| `audioOutput` Value | Physical Interface | `config.txt` Directives | Blacklisted Kernel Modules |
 |:---|:---|:---|:---|
-| `"jack"` | Sortie analogique 3.5 mm intégrée | Aucun (sortie BCM2835 native) | Aucun |
-| `"hifiberry-amp2"` | HAT Amplificateur HiFiBerry Amp2 | `dtoverlay=hifiberry-dacplus-std`<br>`dtparam=audio=off`<br>`force_eeprom_read=0` | `snd_bcm2835` |
-| `"hifiberry-digi"` | HAT Sortie Numérique S/PDIF (Optique/Coax) | `dtoverlay=hifiberry-digi`<br>`dtparam=audio=off`<br>`force_eeprom_read=0` | `snd_bcm2835` |
+| `"jack"` | Onboard 3.5 mm analog jack | None (default BCM2835 PWM audio) | None |
+| `"hifiberry-amp2"` | HiFiBerry Amp2 HAT (integrated amplifier) | `dtoverlay=hifiberry-dacplus-std`<br>`dtparam=audio=off`<br>`force_eeprom_read=0` | `snd_bcm2835` |
+| `"hifiberry-digi"` | HiFiBerry Digi HAT (optical/coaxial S/PDIF) | `dtoverlay=hifiberry-digi`<br>`dtparam=audio=off`<br>`force_eeprom_read=0` | `snd_bcm2835` |
 
-### 2.1 Règles de Configuration Matérielle (`config.txt`)
-- Pour toute carte HiFiBerry (`amp2` ou `digi`) :
-  1. `dtparam = [ "audio=off" ]` : Désactive le circuit audio analogique interne du SoC BCM2711.
-  2. `force_eeprom_read = 0` : Empêche le firmware de charger automatiquement les overlays depuis l'EEPROM physique du HAT (qui entre parfois en conflit avec les versions modernes du noyau Linux >= 6.1).
-  3. `vc4-kms-v3d.noaudio = true` : Désactive l'audio HDMI afin de ne laisser subsister qu'une seule et unique interface ALSA de sortie.
-  4. Blacklist de `snd_bcm2835` dans le noyau pour garantir qu'aucun périphérique virtuel d'écouteur ne parasite la sélection automatique de PipeWire.
+### 2.1 Hardware Configuration Rules (`config.txt`)
+When using any HiFiBerry HAT (`amp2` or `digi`):
+1. `dtparam = [ "audio=off" ]`: Disables the Raspberry Pi SoC onboard analog audio DAC.
+2. `force_eeprom_read = 0`: Prevents the firmware from probing HAT onboard EEPROMs that can trigger device tree overlay conflicts on modern 6.x kernels.
+3. `vc4-kms-v3d.noaudio = true`: Disables HDMI audio endpoints, ensuring a single clean ALSA sink exists on the system.
+4. `snd_bcm2835` module is blacklisted in kernel parameters so ghost headphone devices do not disrupt PipeWire sink prioritization.
 
-### 2.2 Suppression des Modules Inutiles
-Pour réduire la consommation mémoire, accélérer le boot et éliminer les réveils processeur superflus, les modules suivants sont blacklistés :
+### 2.2 Unused Kernel Module Blacklist
+To minimize boot time, conserve memory, and eliminate unnecessary interrupts, unneeded multimedia modules are blacklisted:
 ```text
 bcm2835_v4l2, bcm2835_codec, bcm2835_isp, rpi_hevc_dec
 ```
 
 ---
 
-## 3. Protocole des LEDs Indicatrices de Santé (`disable-leds.service`)
+## 3. Visual Health Indicator Protocol (`disable-leds.service`)
 
-Les voyants lumineux intégrés au Raspberry Pi 4 (LED rouge PWR et LED verte ACT) sont utilisés comme **indicateur matériel de réussite du démarrage** :
+The onboard Raspberry Pi 4 LEDs (Red PWR LED and Green ACT LED) serve as a **hardware status indicator**:
 
-1. **Phase de démarrage (Boot) :**
-   Les deux LEDs restent allumées normalement pour indiquer que le matériel est alimenté et charge le système.
-2. **Phase de vérification de santé :**
-   Le service systemd `disable-leds.service` s'exécute après `multi-user.target`. Il scrute l'état des services fondamentaux du système :
+1. **Booting Phase:**  
+   Both LEDs remain solidly illuminated throughout boot to indicate power and system loading.
+2. **Health Verification Phase:**  
+   `disable-leds.service` runs after `multi-user.target`. It probes the systemd state of all critical audio daemons:
    - `pipewire.service`
    - `wireplumber.service`
    - `audio-arbiter.service`
    - `shairport-sync.service`
    - `bluetooth.service`
-   - `soloist.service` (si une clé API est configurée)
-3. **Transition :**
-   - Dès que tous les services sont confirmés `active (running)`, le script désactive les triggers matériels des LEDs et bascule leur luminosité à `0` dans `/sys/class/leds/*/brightness`.
-   - Si l'un des démons essentiels échoue ou plante, le service échoue et **les LEDs restent allumées**, signalant immédiatement une anomalie sans avoir besoin d'ouvrir une console SSH.
+   - `soloist.service` (if an API key is present)
+3. **State Transition:**  
+   - Once all essential services are confirmed `active (running)`, the service removes kernel LED triggers and writes `0` to `/sys/class/leds/*/brightness`. Both LEDs turn completely off.
+   - If any daemon fails to reach a healthy state within 60 seconds, the service fails and **LEDs remain lit**, providing immediate physical troubleshooting feedback without requiring SSH access.
 
 ---
 
-## 4. Profils d'Hôtes Actuels
+## 4. Current Device Profiles
 
-Les hôtes sont définis dans `hosts/devices/<name>.nix` :
+Device profiles reside in `hosts/devices/<name>.nix`:
 
 ### 4.1 Chambre de Léo — [`hosts/devices/chambre-de-leo.nix`](../hosts/devices/chambre-de-leo.nix)
-- **Nom d'hôte :** `chambre-de-leo`
-- **Nom d'affichage :** `Chambre de Léo`
-- **Sortie audio :** `hifiberry-amp2`
-- **DSP :** Égaliseur paramétrique actif (courbe Lo Boost Moode Audio : 31 Hz +12.24 dB, 63 Hz +4.32 dB, préamplification -4.80 dB).
+- **Hostname:** `chambre-de-leo`
+- **Display Name:** `Chambre de Léo`
+- **Audio Output:** `hifiberry-amp2`
+- **DSP Equalizer:** Active (Moode Audio *Lo Boost* curve: 31 Hz +12.24 dB, 63 Hz +4.32 dB, preamp -4.80 dB).
 
 ### 4.2 Chambre de Sarah — [`hosts/devices/chambre-de-sarah.nix`](../hosts/devices/chambre-de-sarah.nix)
-- **Nom d'hôte :** `chambre-de-sarah`
-- **Nom d'affichage :** `Chambre de Sarah`
-- **Sortie audio :** `jack`
-- **DSP :** Désactivé (réponse plate standard).
+- **Hostname:** `chambre-de-sarah`
+- **Display Name:** `Chambre de Sarah`
+- **Audio Output:** `jack`
+- **DSP Equalizer:** Disabled (flat output).
 
 ### 4.3 Télévision — [`hosts/devices/television.nix`](../hosts/devices/television.nix)
-- **Nom d'hôte :** `television`
-- **Nom d'affichage :** `Télévision`
-- **Sortie audio :** `hifiberry-digi` (S/PDIF optique/coaxial vers amplificateur Onkyo).
-- **Intégration Amplificateur :** Pont eISCP Onkyo actif (`onkyo.enable = true`).
+- **Hostname:** `television`
+- **Display Name:** `Télévision`
+- **Audio Output:** `hifiberry-digi` (S/PDIF optical/coaxial to Onkyo AV receiver).
+- **Receiver Integration:** Onkyo eISCP bridge enabled (`onkyo.enable = true`).
