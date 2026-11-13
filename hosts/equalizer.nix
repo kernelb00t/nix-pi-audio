@@ -42,12 +42,10 @@ let
   linkPairs = lib.zipListsWith (a: b: { from = a; to = b; })
     (lib.init nodeNames) (lib.tail nodeNames);
 
-  links = lib.concatMap (pair: [
-    { output = "${pair.from}:Out 1"; input = "${pair.to}:In 1"; }
-    { output = "${pair.from}:Out 2"; input = "${pair.to}:In 2"; }
-  ]) linkPairs;
-
-  lastNode = lib.last nodeNames;
+  links = map (pair: {
+    output = "${pair.from}:Out";
+    input = "${pair.to}:In";
+  }) linkPairs;
 in
 {
   config = lib.mkIf eqEnabled {
@@ -56,18 +54,19 @@ in
         {
           name = "libpipewire-module-filter-chain";
           args = {
+            "audio.channels" = 2;
+            "audio.position" = [ "FL" "FR" ];
             "node.description" = "Equalizer";
             "media.name" = "Equalizer";
             "filter.graph" = {
               nodes = allNodes;
               inherit links;
-              inputs = [ "preamp:In 1" "preamp:In 2" ];
-              outputs = [ "${lastNode}:Out 1" "${lastNode}:Out 2" ];
             };
-            "audio.position" = [ "FL" "FR" ];
             "capture.props" = {
               "node.name" = "effect_input.eq";
               "media.class" = "Audio/Sink";
+              "priority.driver" = 2000;
+              "priority.session" = 2000;
             };
             "playback.props" = {
               "node.name" = "effect_output.eq";
@@ -77,16 +76,5 @@ in
         }
       ];
     };
-
-    # Make the EQ sink the default output so every client routes through it.
-    services.pipewire.wireplumber.extraConfig."90-equalizer-default"."monitor.alsa.rules" = [
-      {
-        matches = [ { "node.name" = "effect_input.eq"; } ];
-        actions.update-props = {
-          "priority.session" = 2000;
-          "priority.driver" = 2000;
-        };
-      }
-    ];
   };
 }
