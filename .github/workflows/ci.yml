@@ -115,8 +115,33 @@ jobs:
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
           echo "Kernel changed or missing from the cache: $changed"
 
-      - name: Build the kernel and push it to the cache
+      # Avoid recompiling a kernel that was already built: kernel.yml used to publish
+      # the kernel as a GitHub release (tag kernel-<hash of the output path>). If that
+      # release exists, import it and push it to the cache instead of building.
+      - name: Import the kernel from its release instead of building it
+        id: bootstrap
         if: steps.kernel.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          out=$(nix eval --raw ".#nixosConfigurations.chambre-de-leo.config.boot.kernelPackages.kernel.outPath")
+          tag="kernel-$(basename "$out" | cut -d- -f1)"
+          if gh release download "$tag" --pattern kernel.nar.zst --dir "$RUNNER_TEMP" 2>/dev/null; then
+            zstd -d -c "$RUNNER_TEMP/kernel.nar.zst" | sudo "$(command -v nix-store)" --import > /dev/null
+            if nix path-info "$out" >/dev/null 2>&1; then
+              echo "Kernel $out imported from release $tag: not rebuilding it."
+              cachix push "$CACHE_NAME" "$out"
+              echo "imported=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::warning::Release $tag did not provide $out: building the kernel."
+          else
+            echo "No release $tag: building the kernel."
+          fi
+          echo "imported=false" >> "$GITHUB_OUTPUT"
+
+      - name: Build the kernel and push it to the cache
+        if: steps.kernel.outputs.changed == 'true' && steps.bootstrap.outputs.imported != 'true'
         run: |
           sort -u "$RUNNER_TEMP/kernel-drvs" | while read -r drv; do
             # All outputs of the kernel derivation.
