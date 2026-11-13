@@ -25,6 +25,7 @@ in
     ./airplay.nix
     ./bluetooth.nix
     ./arbiter.nix
+    ./equalizer.nix
   ];
 
   assertions = [
