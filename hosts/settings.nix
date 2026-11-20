@@ -50,4 +50,8 @@
   # reboot is needed, if DISCORD_WEBHOOK is set). true: the Pi reboots by
   # itself between 04:00 and 05:30 when the kernel or firmware changed.
   autoUpgradeReboot = false;
+
+  # Debug event log (eventlog.nix): PipeWire volumes, BlueZ and Soloist events as
+  # JSON lines in the volatile journal; read them with pi-events [minutes].
+  eventLog = true;
 }

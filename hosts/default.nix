@@ -27,7 +27,6 @@ in
     ./airplay.nix
     ./bluetooth.nix
     ./arbiter.nix
-    ./eventlog.nix
     ./equalizer.nix
     ./onkyo.nix
   ];
