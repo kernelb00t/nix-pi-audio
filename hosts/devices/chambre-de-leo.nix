@@ -10,10 +10,14 @@
   # Setting preamp to -4.80 dB matches Moode's overall gain structure.
   equalizer = {
     enable = true;
-    preamp = -4.80;
+    # 2026-11-20: bass boost extended up to 100 Hz (Léo). Resulting curve:
+    # about +13.8 dB at 31 Hz, +10 to +11 dB from 40 to 80 Hz, +8.4 dB at
+    # 100 Hz, +2.8 dB at 160 Hz. Preamp lowered by 0.8 dB to keep the old peak.
+    preamp = -5.60;
     bands = [
       { freq = 31.0;  q = 1.41; gain = 12.24; }
-      { freq = 63.0;  q = 1.41; gain = 4.32;  }
+      { freq = 63.0;  q = 1.41; gain = 7.0;   }
+      { freq = 100.0; q = 1.41; gain = 5.0;   }
     ];
   };
 }
