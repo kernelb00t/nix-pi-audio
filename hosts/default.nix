@@ -27,6 +27,7 @@ in
     ./airplay.nix
     ./bluetooth.nix
     ./arbiter.nix
+    ./eventlog.nix
     ./equalizer.nix
     ./onkyo.nix
   ];
@@ -211,9 +212,10 @@ in
       {
         matches = [ { "node.name" = "~alsa_output.*"; } ];
         actions.update-props = {
-          # Keep the output open: avoids clicks from the amplifier and
-          # the start of tracks being cut.
-          "session.suspend-timeout-seconds" = 0;
+          # Close the output after a few seconds of silence, like Moode
+          # does, so the amplifier HAT is not kept active around the clock.
+          # A short delay avoids reopening it between tracks.
+          "session.suspend-timeout-seconds" = 5;
         };
       }
     ];
