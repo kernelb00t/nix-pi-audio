@@ -34,6 +34,14 @@ LOCKOUT = float(os.environ.get("LOCKOUT", "15"))
 # A source must keep playing this long before it disconnects the others: short
 # "playing" blips (track change, a phone that just connected) do not count.
 MIN_PLAY = float(os.environ.get("MIN_PLAY", "4"))
+# When Soloist becomes the active Spotify Connect device, Spotify sometimes
+# pushes volume 100 a few seconds later while the app still shows the previous
+# level. Within VOLUME_GUARD seconds of activation, a volume of at least
+# VOLUME_JUMP is put back to the last volume seen while inactive (or
+# START_VOLUME if unknown or itself too high). Later changes are left alone.
+VOLUME_GUARD = float(os.environ.get("VOLUME_GUARD", "10"))
+VOLUME_JUMP = int(os.environ.get("VOLUME_JUMP", "90"))
+START_VOLUME = int(os.environ.get("START_VOLUME", "30"))
 
 # Wait after the AVRCP Pause before disconnecting a Bluetooth device.
 BT_PAUSE_WAIT = 0.3
@@ -148,11 +156,29 @@ async def spotify_task():
         try:
             async with websockets.connect(WS_URL) as ws:
                 log("connected to the Soloist WebSocket")
+                active = None
+                guard_until = 0.0
+                known_volume = None
                 async for raw in ws:
                     try:
                         ev = json.loads(raw)
                     except ValueError:
                         continue
+                    if not isinstance(ev, dict):
+                        continue
+                    if isinstance(ev.get("is_active"), bool):
+                        if ev["is_active"] and active is False:
+                            guard_until = time.monotonic() + VOLUME_GUARD
+                        active = ev["is_active"]
+                    vol = ev.get("volume")
+                    if isinstance(vol, int) and not isinstance(vol, bool):
+                        if time.monotonic() < guard_until and vol >= VOLUME_JUMP:
+                            target = known_volume if known_volume is not None and known_volume < VOLUME_JUMP else START_VOLUME
+                            guard_until = 0.0
+                            log(f"spotify: volume {vol} right after activation, set back to {target}")
+                            await ws.send(json.dumps({"type": "command", "command": "set_volume", "volume": target}))
+                        elif active is False or time.monotonic() >= guard_until:
+                            known_volume = vol
                     if ev.get("type") == "playback_changed":
                         status = find_status(ev)
                         if status:
