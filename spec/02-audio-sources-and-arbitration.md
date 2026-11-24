@@ -74,7 +74,7 @@ Spotify sometimes pushes volume 100 to Soloist a few seconds after it becomes th
 ### 3.1 Kick (Disconnect) Mechanism
 To ensure streaming applications visibly reflect the handover on phones and laptops, competing sources are disconnected rather than merely muted:
 - **Spotify:** Restarts `soloist.service` via `systemctl restart`. The Spotify app immediately drops back to local playback.
-- **AirPlay 2:** Removes `/run/audio-arbiter/airplay` and restarts `shairport-sync.service`. iOS/macOS Control Center releases the route.
+- **AirPlay 2:** Removes `/run/audio-arbiter/airplay` and restarts `shairport-sync.service`. iOS/macOS Control Center releases the route. This also applies when AirPlay is not playing but a client still holds a session (paused or idle): the arbiter checks for an established RTSP connection on TCP port 7000 (`/proc/net/tcp`, `/proc/net/tcp6`), otherwise the phone stays connected while another source plays.
 - **Bluetooth:** see section 3.3.
 
 ### 3.3 Bluetooth: every device is a source

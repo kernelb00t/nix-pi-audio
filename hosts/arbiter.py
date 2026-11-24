@@ -6,7 +6,8 @@ Bluetooth device (BlueZ A2DP; each device is its own source, "bt:<path>").
 Only one may play at a time: the last one to start wins, the others are
 disconnected (not paused), so the user sees it:
   - Spotify:   restart soloist.service
-  - AirPlay:   restart shairport-sync.service
+  - AirPlay:   restart shairport-sync.service, also when the session is only
+    connected (paused or idle: an established RTSP connection on port 7000)
   - Bluetooth: every connected device other than the winner is disconnected,
     playing or not (AVRCP Pause, short wait, then BlueZ Device1.Disconnect)
 Optionally a Shelly plug (speakers power) is switched on when anything plays
@@ -34,6 +35,7 @@ LOCKOUT = float(os.environ.get("LOCKOUT", "15"))
 # A source must keep playing this long before it disconnects the others: short
 # "playing" blips (track change, a phone that just connected) do not count.
 MIN_PLAY = float(os.environ.get("MIN_PLAY", "4"))
+AIRPLAY_RTSP_PORT = int(os.environ.get("AIRPLAY_RTSP_PORT", "7000"))
 # When Soloist becomes the active Spotify Connect device, Spotify sometimes
 # pushes volume 100 a few seconds later while the app still shows the previous
 # level. Within VOLUME_GUARD seconds of activation, a volume of at least
@@ -120,9 +122,31 @@ def devices_to_disconnect(winner, connected_devices):
     return [d for d in connected_devices if BT_PREFIX + d != winner]
 
 
+def airplay_connected():
+    """True if an AirPlay client holds an RTSP connection (TCP port 7000).
+
+    A paused or idle AirPlay session is not "playing" but the phone still
+    shows it connected: it must be disconnected too when another source wins.
+    """
+    for name in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(name) as f:
+                next(f)
+                for line in f:
+                    fields = line.split()
+                    # local_address is ADDR:PORT (hex), st 01 = ESTABLISHED
+                    if fields[1].endswith(":%04X" % AIRPLAY_RTSP_PORT) and fields[3] == "01":
+                        return True
+        except (OSError, StopIteration, IndexError):
+            continue
+    return False
+
+
 async def kick_others(winner):
     for other in SOURCES:
-        if other == winner or not playing.get(other, False):
+        if other == winner:
+            continue
+        if not playing.get(other, False) and not (other == "airplay" and airplay_connected()):
             continue
         log(f"{winner} started: disconnecting {other}")
         lockout_until[other] = time.monotonic() + LOCKOUT
