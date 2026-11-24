@@ -58,7 +58,7 @@ jobs:
           platforms: arm64
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31.11.5
+        uses: cachix/install-nix-action@v32.1.0
         with:
           extra_nix_config: |
             extra-platforms = aarch64-linux

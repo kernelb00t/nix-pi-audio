@@ -35,7 +35,7 @@ jobs:
           ref: main
 
       - name: Install Nix
-        uses: cachix/install-nix-action@v31.11.5
+        uses: cachix/install-nix-action@v32.1.0
 
       - name: Bump the kernel inputs
         run: nix flake update nixpkgs-kernel nixos-hardware-kernel
