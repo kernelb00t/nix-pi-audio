@@ -63,7 +63,13 @@ sequenceDiagram
 | `MIN_PLAY` | `4.0 s` | Minimum duration a source must sustain uninterrupted playback before kicking other sources. Prevents accidental disconnects from track browsing, incoming notifications, or connection handshakes. |
 | `LOCKOUT` | `15.0 s` | Immunity window preventing a recently disconnected source from immediately re-interrupting the new source. |
 | `OFF_DELAY` | `20.0 s` | Silence duration required before switching off the Shelly speaker plug. |
+| `VOLUME_GUARD` | `10.0 s` | Window after Soloist becomes the active Spotify Connect device during which a volume jump is corrected. |
+| `VOLUME_JUMP` | `90` | Volume (0-100) reported inside that window that counts as a jump. |
+| `START_VOLUME` | `30` | Fallback volume when no earlier level is known (or it was itself a jump). |
 | `STATE_DIR` | `/run/audio-arbiter` | In-memory `tmpfs` directory for IPC state files. |
+
+### 3.0 Spotify volume on activation
+Spotify sometimes pushes volume 100 to Soloist a few seconds after it becomes the active device, while the app still shows the previous level, so playback starts too loud. The arbiter follows `is_active` and `volume` on the Soloist WebSocket. Within `VOLUME_GUARD` of an inactive-to-active transition, a volume of at least `VOLUME_JUMP` is set back once (`{"type":"command","command":"set_volume","volume":N}`) to the last volume seen outside that window, or `START_VOLUME`. Any later change from the app is left alone.
 
 ### 3.1 Kick (Disconnect) Mechanism
 To ensure streaming applications visibly reflect the handover on phones and laptops, competing sources are disconnected rather than merely muted:
