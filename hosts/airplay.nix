@@ -21,6 +21,9 @@ in
     description = "Network Precision Time Protocol for shairport-sync (AirPlay 2)";
     wantedBy = [ "multi-user.target" ];
     before = [ "shairport-sync.service" ];
+    # Restarted with shairport-sync (upgrades, arbiter takeovers): a stuck nqptp
+    # left AirPlay connected but silent (no fresh PTP timing).
+    partOf = [ "shairport-sync.service" ];
     after = [ "network.target" ];
     serviceConfig = {
       ExecStart = "${pkgs.nqptp}/bin/nqptp";

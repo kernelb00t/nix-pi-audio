@@ -14,7 +14,7 @@ The system runs three independent audio receiver daemons:
 
 ### 1.2 AirPlay 2 (Shairport-Sync) — [`hosts/airplay.nix`](../hosts/airplay.nix)
 - **Binary:** `shairport-sync` compiled with AirPlay 2 support (PipeWire audio backend, ALAC/AAC hardware/software decryption).
-- **PTP Clock Synchronization:** Coupled with `nqptp` (listening on UDP ports 319 and 320) for multi-room sub-millisecond clock synchronization.
+- **PTP Clock Synchronization:** Coupled with `nqptp` (listening on UDP ports 319 and 320) for multi-room sub-millisecond clock synchronization. `nqptp` is `PartOf` `shairport-sync.service`: every stop or restart of shairport-sync (upgrade, arbiter takeover) also restarts `nqptp`, so a stuck clock daemon cannot leave AirPlay connected but silent (observed on 2026-11-24 after eight months of `nqptp` uptime).
 - **mDNS Announcement:** Broadcasted across the local network via Avahi using the configured device display name (`settings.deviceName`).
 - **Session State Hooks:**
   - Playback start hook: creates marker file `/run/audio-arbiter/airplay`.
