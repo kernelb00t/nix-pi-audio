@@ -63,6 +63,12 @@ in
   };
   systemd.services.shairport-sync = {
     wants = [ "nqptp.service" "avahi-daemon.service" "pipewire.service" ];
+    # shairport-sync reads nqptp's clock through shared memory: if nqptp is
+    # restarted alone (upgrade that changes its unit), shairport-sync keeps the
+    # old clock and AirPlay connects but stays silent (2026-11-25). Restart it
+    # whenever the nqptp unit changes. The reverse (restart shairport-sync ->
+    # restart nqptp) is the partOf on nqptp above.
+    restartTriggers = [ config.systemd.units."nqptp.service".unit ];
     after = [ "nqptp.service" "avahi-daemon.service" "pipewire.service" "wireplumber.service" ];
     environment = {
       PIPEWIRE_RUNTIME_DIR = "/run/pipewire";
